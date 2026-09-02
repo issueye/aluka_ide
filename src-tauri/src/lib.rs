@@ -337,7 +337,7 @@ fn list_workspace_files(root: String) -> Result<Vec<String>, String> {
 #[tauri::command]
 async fn get_git_branch(root: String) -> Result<Option<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let output = std::process::Command::new("git")
+        let output = git::new_git_command()
             .args(["branch", "--show-current"])
             .current_dir(&root)
             .output()

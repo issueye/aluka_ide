@@ -87,12 +87,23 @@ fn parse_porcelain_status(output: &str) -> (Vec<GitFileChange>, Vec<GitFileChang
     (staged, unstaged)
 }
 
+/// 构造静默执行的 Git 子进程命令（在 Windows 下添加 CREATE_NO_WINDOW 避免弹出控制台黑框）
+pub fn new_git_command() -> Command {
+    let mut cmd = Command::new("git");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    }
+    cmd
+}
+
 /// 查询当前仓库完整状态
 #[tauri::command]
 pub async fn git_status(root: String) -> Result<GitRepoStatus, String> {
     tauri::async_runtime::spawn_blocking(move || {
         // 1. 验证是否为 git 仓库
-        let rev_check = Command::new("git")
+        let rev_check = new_git_command()
             .args(["rev-parse", "--is-inside-work-tree"])
             .current_dir(&root)
             .output();
@@ -114,7 +125,7 @@ pub async fn git_status(root: String) -> Result<GitRepoStatus, String> {
         }
 
         // 2. 获取当前分支名
-        let branch_out = Command::new("git")
+        let branch_out = new_git_command()
             .args(["branch", "--show-current"])
             .current_dir(&root)
             .output()
@@ -124,7 +135,7 @@ pub async fn git_status(root: String) -> Result<GitRepoStatus, String> {
             .to_string();
         let branch = if branch_str.is_empty() {
             // 分离 HEAD 状态时显示短 commit hash
-            let head_out = Command::new("git")
+            let head_out = new_git_command()
                 .args(["rev-parse", "--short", "HEAD"])
                 .current_dir(&root)
                 .output()
@@ -142,7 +153,7 @@ pub async fn git_status(root: String) -> Result<GitRepoStatus, String> {
         };
 
         // 3. 获取变更列表 (porcelain v1)
-        let status_out = Command::new("git")
+        let status_out = new_git_command()
             .args(["status", "--porcelain=v1", "-uall"])
             .current_dir(&root)
             .output()
@@ -152,7 +163,7 @@ pub async fn git_status(root: String) -> Result<GitRepoStatus, String> {
 
         // 4. 获取 ahead / behind 计数
         let (ahead, behind) = if let Some(ref b) = branch {
-            let ab_out = Command::new("git")
+            let ab_out = new_git_command()
                 .args([
                     "rev-list",
                     "--left-right",
@@ -195,7 +206,7 @@ pub async fn git_status(root: String) -> Result<GitRepoStatus, String> {
 #[tauri::command]
 pub async fn git_stage(root: String, paths: Vec<String>) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let mut cmd = Command::new("git");
+        let mut cmd = new_git_command();
         cmd.current_dir(&root).arg("add");
         if paths.is_empty() {
             cmd.arg("-A");
@@ -220,7 +231,7 @@ pub async fn git_stage(root: String, paths: Vec<String>) -> Result<(), String> {
 #[tauri::command]
 pub async fn git_unstage(root: String, paths: Vec<String>) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let mut cmd = Command::new("git");
+        let mut cmd = new_git_command();
         cmd.current_dir(&root).args(["restore", "--staged"]);
         if paths.is_empty() {
             cmd.arg(".");
@@ -232,7 +243,7 @@ pub async fn git_unstage(root: String, paths: Vec<String>) -> Result<(), String>
         let out = cmd.output().map_err(|e| format!("执行取消暂存失败: {e}"))?;
         if !out.status.success() {
             // 降级使用 reset HEAD
-            let mut reset_cmd = Command::new("git");
+            let mut reset_cmd = new_git_command();
             reset_cmd.current_dir(&root).args(["reset", "HEAD", "--"]);
             if paths.is_empty() {
                 reset_cmd.arg(".");
@@ -264,7 +275,7 @@ pub async fn git_discard(
     tauri::async_runtime::spawn_blocking(move || {
         if is_untracked {
             // 未跟踪文件：git clean -f -- <paths>
-            let mut cmd = Command::new("git");
+            let mut cmd = new_git_command();
             cmd.current_dir(&root).args(["clean", "-f", "--"]);
             for p in &paths {
                 cmd.arg(p);
@@ -277,7 +288,7 @@ pub async fn git_discard(
             }
         } else {
             // 已跟踪更改：git restore -- <paths>
-            let mut cmd = Command::new("git");
+            let mut cmd = new_git_command();
             cmd.current_dir(&root).args(["restore", "--"]);
             for p in &paths {
                 cmd.arg(p);
@@ -287,7 +298,7 @@ pub async fn git_discard(
                 .map_err(|e| format!("执行 git restore 失败: {e}"))?;
             if !out.status.success() {
                 // 降级 checkout --
-                let mut co_cmd = Command::new("git");
+                let mut co_cmd = new_git_command();
                 co_cmd.current_dir(&root).args(["checkout", "--"]);
                 for p in &paths {
                     co_cmd.arg(p);
@@ -314,7 +325,7 @@ pub async fn git_commit(root: String, message: String) -> Result<(), String> {
         if msg.is_empty() {
             return Err("提交信息不能为空".to_string());
         }
-        let out = Command::new("git")
+        let out = new_git_command()
             .args(["commit", "-m", msg])
             .current_dir(&root)
             .output()
@@ -338,7 +349,7 @@ pub async fn git_get_file_content(
     tauri::async_runtime::spawn_blocking(move || {
         let rev = revision.unwrap_or_else(|| "HEAD".to_string());
         let spec = format!("{rev}:{path}");
-        let out = Command::new("git")
+        let out = new_git_command()
             .args(["show", &spec])
             .current_dir(&root)
             .output()
@@ -357,7 +368,7 @@ pub async fn git_get_file_content(
 #[tauri::command]
 pub async fn git_list_branches(root: String) -> Result<Vec<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let out = Command::new("git")
+        let out = new_git_command()
             .args(["branch", "--format=%(refname:short)"])
             .current_dir(&root)
             .output()
@@ -381,7 +392,7 @@ pub async fn git_list_branches(root: String) -> Result<Vec<String>, String> {
 #[tauri::command]
 pub async fn git_checkout(root: String, branch: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let out = Command::new("git")
+        let out = new_git_command()
             .args(["checkout", &branch])
             .current_dir(&root)
             .output()
@@ -399,7 +410,7 @@ pub async fn git_checkout(root: String, branch: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn git_create_branch(root: String, name: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let out = Command::new("git")
+        let out = new_git_command()
             .args(["checkout", "-b", &name])
             .current_dir(&root)
             .output()
@@ -417,7 +428,7 @@ pub async fn git_create_branch(root: String, name: String) -> Result<(), String>
 #[tauri::command]
 pub async fn git_push(root: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let out = Command::new("git")
+        let out = new_git_command()
             .arg("push")
             .current_dir(&root)
             .output()
@@ -435,7 +446,7 @@ pub async fn git_push(root: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn git_pull(root: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let out = Command::new("git")
+        let out = new_git_command()
             .arg("pull")
             .current_dir(&root)
             .output()
@@ -453,7 +464,7 @@ pub async fn git_pull(root: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn git_init(root: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let out = Command::new("git")
+        let out = new_git_command()
             .arg("init")
             .current_dir(&root)
             .output()
