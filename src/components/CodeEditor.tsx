@@ -20,25 +20,26 @@ import { monacoThemeName } from "../theme";
 const useMonaco = true;
 
 interface Props {
+  groupId: string;
   activePath: string | null;
 }
 
 /**
  * Monaco 编辑器（callback ref 挂载）。
  * 关键点：editor 的创建与 model 同步共用同一个 `syncModel` 函数——
- * 渲染期调用（处理标签切换）+ ref callback 创建编辑器后立即调用一次
- * （处理初始挂载：React 中 ref callback 在 render 之后执行，若不补这次
- * 同步，首个打开的文件会因错过渲染期窗口而空白）。
- * 组件卸载（如关闭全部标签回到欢迎页）时必须销毁 editor，
- * 否则 remount 后 editorRef 仍指向挂在已脱离 DOM 上的旧实例 → 空白。
+ * 渲染期调用（处理标签切换）+ ref callback 创建编辑器后立即调用一次。
+ * 多组分屏下按 `${groupId}:${path}` 隔离保存各自的视图状态（光标与滚动）。
  */
-export default function CodeEditor({ activePath }: Props) {
+export default function CodeEditor({ groupId, activePath }: Props) {
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const prevPathRef = useRef<string | null>(null);
   const cursorHandlerRef = useRef<monaco.IDisposable | null>(null);
+  const focusHandlerRef = useRef<monaco.IDisposable | null>(null);
   const [monacoFailed, setMonacoFailed] = useState(!useMonaco);
   // ref callback 只建一次（useCallback []），经此 ref 读取最新的同步闭包
   const syncRef = useRef<() => void>(() => {});
+
+  const stateKey = (p: string) => `${groupId}:${p}`;
 
   // 切换 model / 恢复视图态 / 联动状态栏（幂等：path 未变则直接返回）
   const syncModel = () => {
@@ -46,25 +47,29 @@ export default function CodeEditor({ activePath }: Props) {
     if (!editor || prevPathRef.current === activePath) return;
     if (prevPathRef.current) {
       const st = editor.saveViewState();
-      if (st) viewStates.set(prevPathRef.current, st);
+      if (st) viewStates.set(stateKey(prevPathRef.current), st);
     }
     prevPathRef.current = activePath;
     const model = activePath ? getModel(activePath) : null;
     editor.setModel(model);
     if (activePath && model) {
-      const viewState = viewStates.get(activePath);
+      const viewState = viewStates.get(stateKey(activePath)) ?? viewStates.get(activePath);
       if (viewState) editor.restoreViewState(viewState);
-      editor.focus();
-      const tab = useEditorStore
-        .getState()
-        .tabs.find((t) => t.path === activePath);
+      const isCurrentActiveGroup = useEditorStore.getState().activeGroupId === groupId;
+      if (isCurrentActiveGroup) {
+        editor.focus();
+      }
+      const group = useEditorStore.getState().groups.find((g) => g.id === groupId);
+      const tab = group?.tabs.find((t) => t.path === activePath);
       editor.updateOptions({ readOnly: tab?.readOnly ?? false });
-      useStatusStore.getState().update({
-        line: 1,
-        col: 1,
-        eol: model.getEOL() === "\n" ? "LF" : "CRLF",
-        language: languageLabel(model.getLanguageId() || languageOf(activePath)),
-      });
+      if (isCurrentActiveGroup) {
+        useStatusStore.getState().update({
+          line: 1,
+          col: 1,
+          eol: model.getEOL() === "\n" ? "LF" : "CRLF",
+          language: languageLabel(model.getLanguageId() || languageOf(activePath)),
+        });
+      }
     }
   };
   syncRef.current = syncModel;
@@ -78,6 +83,8 @@ export default function CodeEditor({ activePath }: Props) {
       // 卸载：销毁 editor 与订阅，重置 refs，保证 remount 得到全新实例
       cursorHandlerRef.current?.dispose();
       cursorHandlerRef.current = null;
+      focusHandlerRef.current?.dispose();
+      focusHandlerRef.current = null;
       editorRef.current?.dispose();
       editorRef.current = null;
       prevPathRef.current = null;
@@ -97,7 +104,21 @@ export default function CodeEditor({ activePath }: Props) {
         scrollBeyondLastLine: true,
       });
       const ed = editorRef.current;
+      focusHandlerRef.current = ed.onDidFocusEditorWidget(() => {
+        useEditorStore.getState().setActiveGroup(groupId);
+        const model = ed.getModel();
+        const pos = ed.getPosition();
+        if (model && pos) {
+          useStatusStore.getState().update({
+            line: pos.lineNumber,
+            col: pos.column,
+            eol: model.getEOL() === "\n" ? "LF" : "CRLF",
+            language: languageLabel(model.getLanguageId() || (activePath ? languageOf(activePath) : "")),
+          });
+        }
+      });
       cursorHandlerRef.current = ed.onDidChangeCursorPosition((e) => {
+        if (useEditorStore.getState().activeGroupId !== groupId) return;
         const model = ed.getModel();
         useStatusStore.getState().update({
           line: e.position.lineNumber,
@@ -110,7 +131,7 @@ export default function CodeEditor({ activePath }: Props) {
     } catch (e) {
       setMonacoFailed(true); // 降级到 textarea，保证编辑保存闭环
     }
-  }, []);
+  }, [groupId, activePath]);
 
   // 字号联动：主题切换无需处理（theme.ts 里 monaco.editor.setTheme 全局生效）
   const fontSize = useSettingsStore((s) => s.fontSize);
@@ -123,6 +144,8 @@ export default function CodeEditor({ activePath }: Props) {
   useEffect(() => {
     const { path, line } = useRevealStore.getState();
     if (revealSeq === 0 || !path || path !== activePath) return;
+    const isCurrentActiveGroup = useEditorStore.getState().activeGroupId === groupId;
+    if (!isCurrentActiveGroup) return;
     const ed = editorRef.current;
     if (!ed || !ed.getModel()) return;
     ed.setSelection({
@@ -133,7 +156,7 @@ export default function CodeEditor({ activePath }: Props) {
     });
     ed.revealLineInCenter(line);
     ed.focus();
-  }, [revealSeq, activePath]);
+  }, [revealSeq, activePath, groupId]);
 
   // 降级渲染：纯 textarea（Monaco 未启用或创建失败）
   if (monacoFailed) {
@@ -142,6 +165,7 @@ export default function CodeEditor({ activePath }: Props) {
         key={activePath ?? "empty"}
         spellCheck={false}
         defaultValue={activePath ? getDraft(activePath) : ""}
+        onFocus={() => useEditorStore.getState().setActiveGroup(groupId)}
         onChange={(e) => {
           if (!activePath) return;
           setDraft(activePath, e.target.value);
@@ -158,3 +182,4 @@ export default function CodeEditor({ activePath }: Props) {
     </div>
   );
 }
+

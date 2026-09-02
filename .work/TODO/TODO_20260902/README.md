@@ -288,6 +288,19 @@
 | 2026-09-02 | **用户反馈①：错误横幅改浮动** | ✅ | EditorArea 错误提示从文档流改为 `absolute top-11` 浮动层（带阴影、手动关闭），不再挤压编辑器布局 |
 | 2026-09-02 | **用户反馈②：Light+ 活动栏跟随 + 文字对比** | ✅ | ①活动栏背景改浅色跟随（#f3f3f3），新增 `--aluka-activity-active`（激活/悬停图标色）变量化 ActivityBar 硬编码 white；②新增 `--aluka-text-active`（list.activeSelectionForeground）与 `--aluka-overlay-bg`（editorWidget.background）两个主题变量，批量替换：标签激活文字（text-white→变量）、命令面板/搜索结果激活行、Panel 激活标签、保存确认/删除确认弹窗与通知 toast 的深底（#252526→overlay-bg）、Explorer 菜单底（#1f1f1f→overlay-bg）。Light+ 走查：激活标签深色文字清晰、整体浅色连贯；Dark+ 回归正常。蓝底按钮白字（--aluka-btn-bg）两主题对比均良好保留不动 |
 | 2026-09-02 | **用户反馈③：标签右键菜单** | 🔄 待人工 | 已实现标签浮动右键菜单（关闭/关闭其他/关闭全部/复制路径），样式同 Explorer 菜单（overlay-bg + 遮罩）。`npm run build` 通过；交互自动化验证受桌面帧过期限制未完成，请人工右键标签复核 |
+| 2026-09-02 | **T24 分屏与多编辑器组** | ✅ | `editorStore.ts` 重构支持 EditorGroup 与 single/horizontal/vertical 分屏布局；CodeEditor 支持同 Model 共享与独立视图状态隔离；EditorArea 支持独立组标签栏、向右/向下拆分按钮、关闭分屏与平滑可拖拽 Splitter 分割条；`commands.ts` 注册 `Ctrl+\` 拆分与 `Ctrl+1/2` 组焦点切换；`npm run build`、`cargo check` 与 `cargo test` 全绿通过 |
+
+### T24 分屏与多编辑器组（Split Editor Group）✅
+
+- **具体目标**：
+  - `editorStore.ts`：数据模型升级为 `groups: EditorGroup[]`，支持分屏布局（single/horizontal/vertical）、分屏比（splitRatio）及跨组 Monaco Model 共享与独立视图状态；
+  - `CodeEditor.tsx`：多组并行挂载，视图状态按 `${groupId}:${path}` 隔离存储与恢复，焦点自动激活对应组并联动状态栏；
+  - `EditorArea.tsx`：实现 `EditorGroupView` 独立标签栏、向右/向下拆分与关闭组操作按钮、可平滑拖拽且双击复位的 `Splitter` 分割条；
+  - `commands.ts`：注册向右拆分（`Ctrl+\`）、向下拆分、关闭组、组焦点切换（`Ctrl+1` / `Ctrl+2`）及布局方向切换命令。
+- **验收标准**：
+  - [x] `npm run build`（tsc strict + vite）通过
+  - [x] `cargo check`、`cargo test` 全绿通过
+  - [x] 分屏数据模型与 Model 共享机制就位
 
 ## 未决问题与次日移交（更新）
 
@@ -296,4 +309,5 @@
 - **补充（同日二次回归）**：StrictMode 修复后 Monaco 仍出现"无法展示内容"——真实根因在渲染层之下：`models` 缓存未登记 + 初始挂载错过渲染期 model 同步 + 卸载不 dispose。三处均已修复并实测（见验证记录末两行）。教训：此前"实测高亮正常"的结论可能来自降级 textarea 或缓存标签路径，Monaco 回归走查必须覆盖"首开文件即 Monaco 渲染"与"remount"两个场景。
 - 自动化测试通道备注：WebView2 的 AXPress 存在延迟落地现象；像素级点击受悬浮动画干扰易判定帧过期。**M4 新增结论**：`mcp key/type strategy=event`（应用前台时）可向 webview 可靠送达 JS keydown——Ctrl+Shift+P/Ctrl+P/Ctrl+B/Escape/回车全链路自动化实测通过，此前"合成键不可靠"的判断已被推翻（失败根因是窗口失焦与帧过期，非通路问题）。
 - **M4（命令与设置）已完成**：T11/T12/T13 全部 ✅（见"追加任务（M4 命令与设置）"与验证记录）。
+- **T24（分屏与多编辑器组）已完成**：多组数据模型、Splitter 拖拽调节、独立组标签栏与快捷键分发全部就位。
 - 次日（D5）：**M5 搜索/终端/状态栏** —— Rust `search_workspace`（大小写/整词/正则 + 截断）、终端会话（cmd 管道 + `terminal:output` 事件，多标签）、状态栏 git 分支（shell out `git branch --show-current`）。autoSave=afterDelay 的行为联动也归入 M5 一并做。MVP+ 检查点位于 M5 收口。

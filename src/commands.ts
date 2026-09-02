@@ -37,9 +37,31 @@ export function getCommand(id: string): AlukaCommand | null {
   return registry.get(id) ?? null;
 }
 
+/** 将快捷键字符串（如 "ctrl+`", "Ctrl+~", "ctrl+backslash"）统一归一化 */
+export function normalizeKeybinding(kb: string): string {
+  const parts = kb.toLowerCase().split("+");
+  const mods: string[] = [];
+  let main = "";
+  for (const p of parts) {
+    if (p === "ctrl" || p === "control") mods.push("ctrl");
+    else if (p === "alt") mods.push("alt");
+    else if (p === "shift") mods.push("shift");
+    else if (p === "meta" || p === "win" || p === "cmd") mods.push("meta");
+    else {
+      if (p === "`" || p === "~" || p === "backquote") main = "backquote";
+      else if (p === "\\" || p === "backslash") main = "backslash";
+      else if (p === "-" || p === "minus") main = "minus";
+      else if (p === "=" || p === "equal") main = "equal";
+      else if (p === " " || p === "space") main = "space";
+      else main = p;
+    }
+  }
+  return mods.length > 0 ? [...mods, main].join("+") : main;
+}
+
 /** 归一化快捷键显示：ctrl+shift+p → Ctrl+Shift+P */
 export function formatKeybinding(kb: string): string {
-  return kb
+  return normalizeKeybinding(kb)
     .split("+")
     .map((p) =>
       p === "ctrl"
@@ -52,9 +74,11 @@ export function formatKeybinding(kb: string): string {
               ? "Win"
               : p === "backquote"
                 ? "`"
-                : p.length === 1
-                  ? p.toUpperCase()
-                  : p.charAt(0).toUpperCase() + p.slice(1),
+                : p === "backslash"
+                  ? "\\"
+                  : p.length === 1
+                    ? p.toUpperCase()
+                    : p.charAt(0).toUpperCase() + p.slice(1),
     )
     .join("+");
 }
@@ -146,14 +170,24 @@ const CODE_MAIN: Record<string, string> = {
   Minus: "minus",
   Equal: "equal",
   Space: "space",
+  Digit0: "0",
+  Digit1: "1",
+  Digit2: "2",
+  Digit3: "3",
+  Digit4: "4",
+  Digit5: "5",
+  Digit6: "6",
+  Digit7: "7",
+  Digit8: "8",
+  Digit9: "9",
+  PageUp: "pageup",
+  PageDown: "pagedown",
 };
 
 /**
  * KeyboardEvent → 归一化组合键（mod+小写主键）。
  * 修饰键自身按下返回 null（不触发）。
- * 主键取值策略：字母/数字用 e.key（非美式布局下按"看到的字符"匹配）；
- * 符号键优先 e.code（物理键位）——修复中文 IME/变体布局下 Ctrl+` 的
- * e.key 为死键合成符或 "Process" 时永远匹配不上 ctrl+backquote 的问题。
+ * 主键取值策略：优先 e.code 物理键位映射，保障在输入法/非英美布局下快捷键依然精准稳定。
  */
 export function normalizeKeyEvent(e: KeyboardEvent): string | null {
   const k = e.key.toLowerCase();
@@ -164,10 +198,10 @@ export function normalizeKeyEvent(e: KeyboardEvent): string | null {
   if (e.shiftKey) mods.push("shift");
   if (e.metaKey) mods.push("meta");
   let main: string;
-  if (/^[a-z0-9]$/.test(k)) {
-    main = k;
-  } else if (CODE_MAIN[e.code]) {
+  if (CODE_MAIN[e.code]) {
     main = CODE_MAIN[e.code];
+  } else if (/^[a-z0-9]$/.test(k)) {
+    main = k;
   } else if (k === " ") {
     main = "space";
   } else {
@@ -180,7 +214,14 @@ export function normalizeKeyEvent(e: KeyboardEvent): string | null {
 function keymap(): Map<string, string> {
   const m = new Map<string, string>();
   for (const c of registry.values()) {
-    if (c.keybinding) m.set(c.keybinding, c.id);
+    if (c.keybinding) {
+      const normalized = normalizeKeybinding(c.keybinding);
+      m.set(normalized, c.id);
+      // 特殊别名兼容：ctrl+backquote 自动支持 ctrl+shift+backquote（用户按 Ctrl+~ 时的实际组合键）
+      if (normalized === "ctrl+backquote") {
+        m.set("ctrl+shift+backquote", c.id);
+      }
+    }
   }
   return m;
 }
@@ -192,7 +233,7 @@ export function installKeybindingHub(): () => void {
     if (!combo) return;
     const id = keymap().get(combo);
     if (!id) return;
-    // 核心集一律优先于输入：Ctrl+S / Ctrl+W 等在编辑器内同样要生效
+    // 核心集一律优先于输入：Ctrl+S / Ctrl+W / Ctrl+` 等在编辑器内同样要生效
     e.preventDefault();
     void runCommand(id);
   };
@@ -257,6 +298,59 @@ export function registerCoreCommands(): void {
       run: () => {
         const s = useEditorStore.getState();
         if (s.activePath) s.closeTab(s.activePath);
+      },
+    },
+    {
+      id: "workbench.action.splitEditorRight",
+      title: "向右拆分编辑器",
+      category: "查看",
+      keybinding: "ctrl+backslash",
+      run: () => useEditorStore.getState().splitGroup("horizontal"),
+    },
+    {
+      id: "workbench.action.splitEditorDown",
+      title: "向下拆分编辑器",
+      category: "查看",
+      run: () => useEditorStore.getState().splitGroup("vertical"),
+    },
+    {
+      id: "workbench.action.focusFirstEditorGroup",
+      title: "聚焦到第一编辑器组",
+      category: "查看",
+      keybinding: "ctrl+1",
+      run: () => {
+        const g = useEditorStore.getState().groups[0];
+        if (g) useEditorStore.getState().setActiveGroup(g.id);
+      },
+    },
+    {
+      id: "workbench.action.focusSecondEditorGroup",
+      title: "聚焦到第二编辑器组",
+      category: "查看",
+      keybinding: "ctrl+2",
+      run: () => {
+        const g = useEditorStore.getState().groups[1];
+        if (g) useEditorStore.getState().setActiveGroup(g.id);
+      },
+    },
+    {
+      id: "workbench.action.closeActiveEditorGroup",
+      title: "关闭编辑器组",
+      category: "查看",
+      run: () => {
+        const s = useEditorStore.getState();
+        if (s.groups.length > 1) s.closeGroup(s.activeGroupId);
+      },
+    },
+    {
+      id: "workbench.action.toggleEditorGroupLayout",
+      title: "切换编辑器组布局（横向/纵向）",
+      category: "查看",
+      run: () => {
+        const s = useEditorStore.getState();
+        if (s.groups.length > 1) {
+          s.setSplitDirection(s.layoutDirection === "horizontal" ? "vertical" : "horizontal");
+        }
       },
     },
     {

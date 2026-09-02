@@ -1,14 +1,16 @@
-import { useState } from "react";
-import { CodeXml, File, FileText, X } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { CodeXml, Columns2, File, FileText, Rows2, X } from "lucide-react";
 import { useAppStore } from "../store";
 import { openFolderDialog } from "../tauri";
-import type { EditorTab } from "../editorStore";
+import type { EditorGroup, EditorTab } from "../editorStore";
 import { useEditorStore } from "../editorStore";
 import CodeEditor from "./CodeEditor";
 
 const SHORTCUTS: [string, string][] = [
   ["Ctrl + Shift + P", "命令面板（M4）"],
   ["Ctrl + P", "快速打开文件（M4）"],
+  ["Ctrl + \\", "向右拆分编辑器"],
+  ["Ctrl + 1 / 2", "在编辑器组间切换焦点"],
   ["Ctrl + B", "显示 / 隐藏侧边栏"],
   ["Ctrl + `", "显示 / 隐藏面板"],
   ["Ctrl + S", "保存"],
@@ -62,34 +64,36 @@ function Welcome({ onOpenFolder }: { onOpenFolder: () => void }) {
   );
 }
 
-function Tab({ tab }: { tab: EditorTab }) {
-  const activePath = useEditorStore((s) => s.activePath);
+function Tab({ tab, groupId, isActiveGroup }: { tab: EditorTab; groupId: string; isActiveGroup: boolean }) {
+  const group = useEditorStore((s) => s.groups.find((g) => g.id === groupId));
   const dirty = useEditorStore((s) => s.dirtyPaths.has(tab.path));
-  const setActive = useEditorStore((s) => s.setActive);
+  const setActiveTab = useEditorStore((s) => s.setActiveTab);
+  const setActiveGroup = useEditorStore((s) => s.setActiveGroup);
   const closeTab = useEditorStore((s) => s.closeTab);
-  const tabs = useEditorStore((s) => s.tabs);
-  const active = activePath === tab.path;
+  const tabs = group?.tabs ?? [];
+  const active = group?.activePath === tab.path;
   const [ctx, setCtx] = useState<{ x: number; y: number } | null>(null);
 
   // 右键菜单项（VS Code 标签行为子集）
   const closeOthers = () => {
     for (const t of tabs) {
-      if (t.path !== tab.path && t.path !== activePath) {
-        // closeTab 对脏文件先弹确认（单路径确认）；非脏立即关闭
-        closeTab(t.path);
+      if (t.path !== tab.path && t.path !== group?.activePath) {
+        closeTab(t.path, groupId);
       }
     }
-    if (activePath && activePath !== tab.path) closeTab(activePath);
+    if (group?.activePath && group.activePath !== tab.path) {
+      closeTab(group.activePath, groupId);
+    }
   };
   const closeAll = () => {
-    for (const t of [...tabs]) closeTab(t.path);
+    for (const t of [...tabs]) closeTab(t.path, groupId);
   };
   const copyPath = () => {
     void navigator.clipboard.writeText(tab.path);
   };
 
   const MENU: { label: string; action: () => void }[] = [
-    { label: "关闭", action: () => closeTab(tab.path) },
+    { label: "关闭", action: () => closeTab(tab.path, groupId) },
     { label: "关闭其他", action: closeOthers },
     { label: "关闭全部", action: closeAll },
     { label: "复制路径", action: copyPath },
@@ -98,9 +102,12 @@ function Tab({ tab }: { tab: EditorTab }) {
   return (
     <>
       <div
-        onClick={() => setActive(tab.path)}
+        onClick={() => {
+          setActiveTab(tab.path, groupId);
+          setActiveGroup(groupId);
+        }}
         onAuxClick={(e) => {
-          if (e.button === 1) closeTab(tab.path);
+          if (e.button === 1) closeTab(tab.path, groupId);
         }}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -109,7 +116,11 @@ function Tab({ tab }: { tab: EditorTab }) {
         title={tab.path}
         className={`group flex h-full min-w-[100px] max-w-[220px] cursor-pointer items-center gap-1.5 border-r border-[var(--aluka-border)] px-3 text-[13px] ${
           active
-            ? "border-t-2 border-t-[#0078d4] bg-[var(--aluka-bg)] pt-0.5 text-[var(--aluka-text-active)]"
+            ? `${
+                isActiveGroup
+                  ? "border-t-2 border-t-[#0078d4]"
+                  : "border-t-2 border-t-[var(--aluka-border)] opacity-80"
+              } bg-[var(--aluka-bg)] pt-0.5 text-[var(--aluka-text-active)]`
             : "bg-[var(--aluka-tabs-bg)] text-[var(--aluka-text-dim)] hover:bg-[var(--aluka-hover)]"
         }`}
       >
@@ -119,7 +130,7 @@ function Tab({ tab }: { tab: EditorTab }) {
           title={dirty ? "关闭（有未保存修改）" : "关闭"}
           onClick={(e) => {
             e.stopPropagation();
-            closeTab(tab.path);
+            closeTab(tab.path, groupId);
           }}
           className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-[var(--aluka-hover)]"
         >
@@ -178,19 +189,19 @@ function SaveConfirmDialog({ path }: { path: string }) {
         </p>
         <div className="flex justify-end gap-2">
           <button
-            onClick={() => void resolveClose(path, "cancel")}
+            onClick={() => void resolveClose("cancel")}
             className="rounded px-3 py-1.5 text-[13px] hover:bg-[var(--aluka-hover)]"
           >
             取消
           </button>
           <button
-            onClick={() => void resolveClose(path, "discard")}
+            onClick={() => void resolveClose("discard")}
             className="rounded px-3 py-1.5 text-[13px] hover:bg-[var(--aluka-hover)]"
           >
             不保存
           </button>
           <button
-            onClick={() => void resolveClose(path, "save")}
+            onClick={() => void resolveClose("save")}
             className="rounded bg-[var(--aluka-btn-bg)] px-3 py-1.5 text-[13px] text-white hover:bg-[var(--aluka-btn-hover)]"
           >
             保存
@@ -201,13 +212,161 @@ function SaveConfirmDialog({ path }: { path: string }) {
   );
 }
 
+function EditorGroupView({
+  group,
+  isSingle,
+  onOpenFolder,
+}: {
+  group: EditorGroup;
+  isSingle: boolean;
+  onOpenFolder: () => void;
+}) {
+  const activeGroupId = useEditorStore((s) => s.activeGroupId);
+  const splitGroup = useEditorStore((s) => s.splitGroup);
+  const closeGroup = useEditorStore((s) => s.closeGroup);
+  const setActiveGroup = useEditorStore((s) => s.setActiveGroup);
+  const isActiveGroup = activeGroupId === group.id;
+
+  return (
+    <div
+      onClick={() => setActiveGroup(group.id)}
+      className={`relative flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--aluka-bg)] ${
+        !isSingle && isActiveGroup ? "ring-1 ring-inset ring-[#0078d4]/40" : ""
+      }`}
+    >
+      {/* 组标签栏 */}
+      <div className="flex h-9 shrink-0 select-none items-stretch border-b border-[var(--aluka-border)] bg-[var(--aluka-tabs-bg)]">
+        <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
+          {group.tabs.length === 0 ? (
+            <div className="flex items-center border-r border-[var(--aluka-border)] px-4 text-[13px] text-[var(--aluka-text-dim)]">
+              未打开文件
+            </div>
+          ) : (
+            group.tabs.map((t) => (
+              <Tab key={t.path} tab={t} groupId={group.id} isActiveGroup={isActiveGroup} />
+            ))
+          )}
+        </div>
+        {/* 右侧组操作按钮 */}
+        <div className="flex shrink-0 items-center gap-0.5 px-1.5 text-[var(--aluka-text-dim)]">
+          <button
+            title="向右拆分编辑器 (Ctrl+\)"
+            onClick={(e) => {
+              e.stopPropagation();
+              splitGroup("horizontal", group.id);
+            }}
+            className="flex h-6 w-6 items-center justify-center rounded hover:bg-[var(--aluka-hover)] hover:text-[var(--aluka-text-active)]"
+          >
+            <Columns2 size={15} />
+          </button>
+          <button
+            title="向下拆分编辑器"
+            onClick={(e) => {
+              e.stopPropagation();
+              splitGroup("vertical", group.id);
+            }}
+            className="flex h-6 w-6 items-center justify-center rounded hover:bg-[var(--aluka-hover)] hover:text-[var(--aluka-text-active)]"
+          >
+            <Rows2 size={15} />
+          </button>
+          {!isSingle && (
+            <button
+              title="关闭编辑器组"
+              onClick={(e) => {
+                e.stopPropagation();
+                closeGroup(group.id);
+              }}
+              className="flex h-6 w-6 items-center justify-center rounded hover:bg-[var(--aluka-hover)] hover:text-[var(--aluka-text-active)]"
+            >
+              <X size={15} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* 编辑器本体 / 欢迎页 */}
+      {group.activePath ? (
+        <CodeEditor groupId={group.id} activePath={group.activePath} />
+      ) : isSingle ? (
+        <Welcome onOpenFolder={onOpenFolder} />
+      ) : (
+        <div className="flex flex-1 items-center justify-center text-[13px] text-[var(--aluka-text-dim)] select-none">
+          点击侧栏文件在该组打开
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Splitter({
+  direction,
+  containerRef,
+}: {
+  direction: "horizontal" | "vertical";
+  containerRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const setSplitRatio = useEditorStore((s) => s.setSplitRatio);
+  const [dragging, setDragging] = useState(false);
+
+  useEffect(() => {
+    if (!dragging) return;
+    const onMouseMove = (e: MouseEvent) => {
+      const container = containerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      if (direction === "horizontal") {
+        const ratio = (e.clientX - rect.left) / rect.width;
+        setSplitRatio(ratio);
+      } else {
+        const ratio = (e.clientY - rect.top) / rect.height;
+        setSplitRatio(ratio);
+      }
+    };
+    const onMouseUp = () => setDragging(false);
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, [dragging, direction, containerRef, setSplitRatio]);
+
+  return (
+    <>
+      {dragging && (
+        <div
+          className={`fixed inset-0 z-50 ${
+            direction === "horizontal" ? "cursor-col-resize" : "cursor-row-resize"
+          }`}
+        />
+      )}
+      <div
+        onMouseDown={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDoubleClick={() => setSplitRatio(0.5)}
+        title="双击重置为 50%"
+        className={`shrink-0 bg-[var(--aluka-border)] transition-colors hover:bg-[#0078d4] ${
+          direction === "horizontal"
+            ? "w-1 cursor-col-resize hover:w-1.5"
+            : "h-1 cursor-row-resize hover:h-1.5"
+        }`}
+      />
+    </>
+  );
+}
+
 export default function EditorArea() {
-  const tabs = useEditorStore((s) => s.tabs);
-  const activePath = useEditorStore((s) => s.activePath);
+  const groups = useEditorStore((s) => s.groups);
+  const layoutDirection = useEditorStore((s) => s.layoutDirection);
+  const splitRatio = useEditorStore((s) => s.splitRatio);
   const error = useEditorStore((s) => s.error);
   const setError = useEditorStore((s) => s.setError);
-  const closePromptPath = useEditorStore((s) => s.closePromptPath);
+  const closePrompt = useEditorStore((s) => s.closePrompt);
   const openWorkspace = useAppStore((s) => s.openWorkspace);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const pickFolder = async () => {
     try {
@@ -218,18 +377,10 @@ export default function EditorArea() {
     }
   };
 
+  const isSplit = groups.length > 1 && layoutDirection !== "single";
+
   return (
-    <section className="relative flex min-h-0 flex-1 flex-col bg-[var(--aluka-bg)]">
-      {/* 标签栏 */}
-      <div className="flex h-9 shrink-0 select-none items-stretch overflow-x-auto border-b border-[var(--aluka-border)] bg-[var(--aluka-tabs-bg)]">
-        {tabs.length === 0 ? (
-          <div className="flex items-center border-r border-[var(--aluka-border)] px-4 text-[13px] text-[var(--aluka-text-dim)]">
-            未打开文件
-          </div>
-        ) : (
-          tabs.map((t) => <Tab key={t.path} tab={t} />)
-        )}
-      </div>
+    <section ref={containerRef} className="relative flex min-h-0 flex-1 flex-col bg-[var(--aluka-bg)]">
       {/* 错误提示：浮动层（不挤压编辑器布局），手动关闭 */}
       {error && (
         <div className="absolute left-2 right-2 top-11 z-30 flex items-start gap-2 rounded border border-[#5a2b1d] bg-[#3a231d] px-2 py-1.5 text-[12px] text-[#f48771] shadow-lg">
@@ -243,8 +394,44 @@ export default function EditorArea() {
           </button>
         </div>
       )}
-      {activePath ? <CodeEditor activePath={activePath} /> : <Welcome onOpenFolder={() => void pickFolder()} />}
-      {closePromptPath && <SaveConfirmDialog path={closePromptPath} />}
+
+      {/* 编辑器组布局 */}
+      {!isSplit ? (
+        <EditorGroupView group={groups[0]} isSingle={true} onOpenFolder={() => void pickFolder()} />
+      ) : (
+        <div
+          className={`flex min-h-0 min-w-0 flex-1 ${
+            layoutDirection === "horizontal" ? "flex-row" : "flex-col"
+          }`}
+        >
+          <div
+            style={
+              layoutDirection === "horizontal"
+                ? { width: `${splitRatio * 100}%` }
+                : { height: `${splitRatio * 100}%` }
+            }
+            className="flex min-h-0 min-w-0 flex-col"
+          >
+            <EditorGroupView group={groups[0]} isSingle={false} onOpenFolder={() => void pickFolder()} />
+          </div>
+
+          <Splitter direction={layoutDirection} containerRef={containerRef} />
+
+          <div
+            style={
+              layoutDirection === "horizontal"
+                ? { width: `${(1 - splitRatio) * 100}%` }
+                : { height: `${(1 - splitRatio) * 100}%` }
+            }
+            className="flex min-h-0 min-w-0 flex-col"
+          >
+            <EditorGroupView group={groups[1]} isSingle={false} onOpenFolder={() => void pickFolder()} />
+          </div>
+        </div>
+      )}
+
+      {closePrompt && <SaveConfirmDialog path={closePrompt.path} />}
     </section>
   );
 }
+
