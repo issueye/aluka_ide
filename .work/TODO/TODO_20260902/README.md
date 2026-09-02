@@ -291,6 +291,9 @@
 | 2026-09-02 | **T24 分屏与多编辑器组** | ✅ | `editorStore.ts` 重构支持 EditorGroup 与 single/horizontal/vertical 分屏布局；CodeEditor 支持同 Model 共享与独立视图状态隔离；EditorArea 支持独立组标签栏、向右/向下拆分按钮、关闭分屏与平滑可拖拽 Splitter 分割条；`commands.ts` 注册 `Ctrl+\` 拆分与 `Ctrl+1/2` 组焦点切换；`npm run build`、`cargo check` 与 `cargo test` 全绿通过 |
 | 2026-09-02 | **T25 终端 ConPTY 升级** | ✅ | 后端引入 `portable-pty = 0.8` 实现 Windows ConPTY 原生伪控制台会话与 `resize_terminal`；前端接入 `@xterm/xterm` 与 `@xterm/addon-fit`；解耦输出流直连 xterm 实例；支持完整 ANSI 彩色渲染、TUI 交互、Tab 补全、窗口 ResizeObserver 自适应与 Dark+/Light+ 主题联动；`npm run build`、`cargo check`、`cargo clippy` 与 `cargo test` 全绿通过 |
 | 2026-09-02 | **T26 Git 源码管理（SCM 与 Diff）** | ✅ | 后端新增 `git.rs` 模块（状态解析、暂存/撤销/放弃、提交、Diff 版本读取、分支管理、Push/Pull、Init）；前端新增 `gitStore.ts`、`SourceControlView.tsx` 侧边栏与 `DiffEditor.tsx`（Monaco Diff 对比）；ActivityBar 增加 SCM 入口与未提交文件徽标，StatusBar 增加分支切换/新建弹窗；`Ctrl+Shift+G` 快捷键注册；`npm run build`、`cargo check`、`cargo clippy` 与 `cargo test` 全绿通过 |
+| 2026-09-02 | **T27 菜单栏 质量门** | ✅ | `npm run build`（tsc strict）通过；`cargo check` 通过（本次零 Rust 改动） |
+| 2026-09-02 | **T27 菜单走查：空态（未打开工作区）** | ✅ | dev 实测：八个菜单全部渲染正确（项/分隔线/快捷键提示）；「新建文本文件/新建终端/运行活动文件」给出「请先打开文件夹」toast；「帮助→关于」toast 显示 v0.1.0；「查看→切换侧边栏」隐藏/恢复闭环；「转到→转到行」面板打开并提示"没有活动的编辑器文件" |
+| 2026-09-02 | **T27 菜单走查：工作区（临时目录 aluka-menu-test）** | ✅ | ①文件→新建文本文件联动资源管理器内联输入框（Escape 取消验证）；②编辑→切换行注释：`print(...)` 变 `# print(...)` + 脏标记 ●，撤销恢复（**修复①后复验**）；③选择→全选（两行高亮）；④转到→转到行 2（状态栏"行 2"）；⑤查看→放大字体（14→16 视觉确认）+ Ctrl+=/- 提示修复；⑥运行→在终端中运行活动文件：`python ".../main.py"` 输出 `hello from aluka`；⑦终端→清空终端（仅剩提示符）；⑧文件→关闭文件夹：工作区重置 + 终端清空（**修复②后复验通过**） |
 
 ### T26 Git 源码管理（SCM 与 Diff 差异对比）✅
 
@@ -304,6 +307,34 @@
   - [x] `cargo check`、`cargo clippy -- -D warnings`、`cargo fmt`、`cargo test` 全绿通过
   - [x] SCM 面板、Diff 编辑器、分支管理全链路闭环
 
+## 追加任务（标题栏菜单栏：文件/编辑/选择/查看/转到/运行/终端/帮助）
+
+### T27 菜单栏功能实现 ✅
+
+- **具体目标**：把标题栏的菜单占位做成真实可用的下拉菜单，八个菜单（文件/编辑/选择/查看/转到/运行/终端/帮助）全部以命令 id 引用 `commands.ts` 注册表，与命令面板、快捷键中枢共用同一执行入口。
+- **实现**：
+  - `MenuBar.tsx`（新）：下拉菜单组件——点击展开/收起、菜单已展开时悬停切换、Escape/点击外部/执行命令后收起、方向键+回车导航、菜单项快捷键提示（displayKeybinding 优先）、分隔线，VS Code Dark+ 观感（overlay-bg + active 高亮）。
+  - `activeEditor.ts`（新）：全局活动 Monaco 编辑器注册表；`CodeEditor` 在 `onDidFocusEditorWidget` 登记、卸载注销；「编辑/选择」菜单命令以此为执行目标。
+  - `monaco-setup.ts`：**按需补入 5 个 editor contrib**（clipboard / find / comment / multicursor / smartSelect）——`editor.api` 默认不含任何 contrib，导致 `getAction()` 为 undefined、菜单编辑命令静默失效（走查中发现并修复）。
+  - `commands.ts`：新增 30+ 命令——文件（新建文本文件 Ctrl+N / 新建文件夹 Ctrl+Shift+N / 打开文件夹 / 关闭文件夹 / 保存 / 全部保存 / 关闭编辑器 / 关闭所有编辑器 / 退出）、编辑（撤销/重做/剪切/复制/粘贴/查找/替换/行注释/块注释，原生绑定用 displayKeybinding 仅展示不进中枢，避免与 Monaco 双触发）、选择（全选/多光标/添加下一个匹配/扩大选择）、查看（命令面板/快速打开/四个视图/侧栏/面板/字体放大缩小重置 Ctrl+= Ctrl+- Ctrl+0/拆分）、转到（转到文件/转到行 Ctrl+G/编辑器组/上下编辑器）、运行（在终端中运行活动文件：按扩展名映射 python/node/go run/cargo run/bash/powershell/cmd，先保存再开终端写入命令）、终端（新建 Ctrl+Shift+`/关闭当前/清空，经 terminalStore 清空钩子直达 xterm 实例）、帮助（关于，toast 显示版本）。
+  - `store.ts`：palette 扩展 `"goto"` 模式；新增 `explorerRequest` 信号（菜单新建文件/文件夹 → 资源管理器根目录内联输入框）与 `closeWorkspace`。
+  - `CommandPalette.tsx`：goto 模式（解析「行号」或「行:列」→ `requestReveal` 定位活动文件）；命令提示列兼容 displayKeybinding。
+  - `editorStore.ts`：`closeAllTabs`（脏文件沿用三选确认弹窗）；`terminalStore.ts`：`registerTerminalClearHook`/`clearTerminalView`。
+- **走查中发现并修复的缺陷**：
+  - ① `editor.api` 不含 contrib → 编辑菜单命令全部静默无效。修复：monaco-setup 按需导入 5 个 contrib + `runEditorAction` 动作缺失时给出提示（不再静默）。
+  - ② 关闭文件夹后终端会话残留：原实现先杀终端再重置工作区，中间 React 渲染窗口内 Panel 的「sessions 为空自动创建」条件重新建会话（竞态）。修复：先 `closeWorkspace()` 重置（阻断自动创建）再清终端。
+  - ③ `formatKeybinding` 对 equal/minus 显示为 "Equal/Minus"，修正为 "=/-"。
+- **验收标准**：
+  - [x] 八个菜单全部展开渲染正确（项/分隔线/快捷键提示），悬停切换、Escape、外点收起正常
+  - [x] 未打开工作区时新建文件/新建终端/运行文件给出「请先打开文件夹」toast
+  - [x] 菜单「文件→新建文本文件」联动资源管理器弹出内联输入框（Enter 建档/Escape 取消）
+  - [x] 打开工作区后标题栏/欢迎页/状态栏三处联动；编辑→切换行注释/撤销闭环（Monaco 生效、脏标记联动）
+  - [x] 选择→全选、转到→转到行（输入 2 → 状态栏「行 2」）、查看→放大字体全部实测通过
+  - [x] 运行→在终端中运行活动文件：终端执行 `python ".../main.py"` 输出 `hello from aluka`
+  - [x] 终端→清空终端；文件→关闭文件夹（工作区重置 + 终端清空，修复②后复验通过）
+  - [x] `npm run build`（tsc strict）通过；`cargo check` 通过（无 Rust 改动）
+
+
 ## 未决问题与次日移交（更新）
 
 - ⚠️ **待人工确认**（自动化无法模拟物理交互）：标题栏拖拽移动、双击标题最大化；真实键盘 Ctrl+B / Ctrl+\` / Ctrl+S（webview 真实键盘通路已验证可用——键入与回车均可到达；合成键到 JS keydown 的路径在自动化下不可靠，M4 快捷键中枢时以人类键盘复核）。
@@ -314,4 +345,5 @@
 - **T24（分屏与多编辑器组）已完成**：多组数据模型、Splitter 拖拽调节、独立组标签栏与快捷键分发全部就位。
 - **T25（终端 ConPTY 升级）已完成**：Windows 原生伪控制台、xterm.js 嵌入、ANSI 彩色高亮、动态 Resize 与多标签保活就位。
 - **T26（Git 源码管理与 Diff）已完成**：SCM 侧边栏、两级变更管理、Monaco Diff 对比、分支管理与状态栏/活动栏联动就位。
+- **T27（标题栏菜单栏）已完成**：文件/编辑/选择/查看/转到/运行/终端/帮助八个下拉菜单全部接入命令注册表；补齐 Monaco contrib（clipboard/find/comment/multicursor/smartSelect）；运行活动文件、转到行、清空终端、关闭文件夹等命令全链路实测通过。后续如需「转到定义/引用」等语言导航，依赖语言服务（L4+ 范畴）。
 - 次日（D5）：**M5 搜索/终端/状态栏** —— Rust `search_workspace`（大小写/整词/正则 + 截断）、状态栏 git 分支（shell out `git branch --show-current`）。autoSave=afterDelay 的行为联动也归入 M5 一并做。MVP+ 检查点位于 M5 收口。

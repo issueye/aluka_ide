@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppStore } from "../store";
-import { useEditorStore } from "../editorStore";
+import { useEditorStore, requestReveal } from "../editorStore";
 import { listWorkspaceFiles } from "../tauri";
 import {
   fuzzyScore,
@@ -11,9 +11,10 @@ import {
 } from "../commands";
 
 /**
- * 全局浮层面板：命令面板（Ctrl+Shift+P）与快速打开（Ctrl+P）共用一套 UI。
+ * 全局浮层面板：命令面板（Ctrl+Shift+P）/ 快速打开（Ctrl+P）/ 转到行（菜单）共用一套 UI。
  * 命令模式：模糊匹配 title/category/id，最近使用命令置顶。
  * 文件模式：加载工作区文件清单，模糊匹配相对路径，回车打开。
+ * 转到行模式：解析行号（可带列号），回车定位活动文件。
  */
 interface Row {
   key: string;
@@ -28,6 +29,7 @@ export default function CommandPalette() {
   const setPalette = useAppStore((s) => s.setPalette);
   const workspaceRoot = useAppStore((s) => s.workspaceRoot);
   const openFile = useEditorStore((s) => s.openFile);
+  const activePath = useEditorStore((s) => s.activePath);
 
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -56,6 +58,25 @@ export default function CommandPalette() {
   }, [palette, workspaceRoot]);
 
   const rows = useMemo<Row[]>(() => {
+    if (palette === "goto") {
+      // 转到行：解析「行号」或「行:列」；列号仅展示（定位以行为单位）
+      const m = query.trim().match(/^(\d+)(?:\s*[:：,]\s*(\d+))?$/);
+      if (!m || !activePath) return [];
+      const line = Number(m[1]);
+      if (line < 1) return [];
+      const col = m[2] !== undefined ? Number(m[2]) : null;
+      return [
+        {
+          key: "goto-line",
+          main: `转到第 ${line} 行${col !== null && col > 0 ? ` 第 ${col} 列` : ""}`,
+          hint: activePath.split(/[\\/]/).pop(),
+          run: () => {
+            setPalette(null);
+            requestReveal(activePath, line);
+          },
+        },
+      ];
+    }
     if (palette === "files") {
       if (!workspaceRoot) return [];
       const q = query.trim();
@@ -111,14 +132,16 @@ export default function CommandPalette() {
     return scored.slice(0, 100).map((x) => ({
       key: x.c.id,
       main: x.hay,
-      hint: x.c.keybinding ? formatKeybinding(x.c.keybinding) : undefined,
+      hint: x.c.keybinding
+        ? formatKeybinding(x.c.keybinding)
+        : x.c.displayKeybinding,
       group: !q && recentPos.has(x.c.id) ? "最近使用" : undefined,
       run: () => {
         setPalette(null);
         void runCommand(x.c.id);
       },
     }));
-  }, [palette, query, files, workspaceRoot, openFile, setPalette]);
+  }, [palette, query, files, workspaceRoot, openFile, setPalette, activePath]);
 
   // 结果集变化时收敛高亮项
   useEffect(() => {
@@ -144,9 +167,20 @@ export default function CommandPalette() {
 
   if (!isOpen) return null;
 
-  const placeholder = palette === "files" ? "输入以按文件名快速打开…" : "> 输入命令…";
+  const placeholder =
+    palette === "files"
+      ? "输入以按文件名快速打开…"
+      : palette === "goto"
+        ? "输入行号（如 42 或 42:8），回车定位…"
+        : "> 输入命令…";
   const emptyHint =
-    palette === "files" && !workspaceRoot ? "尚未打开工作区" : "无匹配项";
+    palette === "files" && !workspaceRoot
+      ? "尚未打开工作区"
+      : palette === "goto" && !activePath
+        ? "没有活动的编辑器文件"
+        : palette === "goto"
+          ? "请输入有效行号"
+          : "无匹配项";
 
   return (
     <div

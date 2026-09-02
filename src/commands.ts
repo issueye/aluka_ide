@@ -2,12 +2,17 @@ import { useAppStore } from "./store";
 import { useEditorStore } from "./editorStore";
 import { useGitStore } from "./gitStore";
 import { useSettingsStore } from "./settingsStore";
+import { useTerminalStore, clearTerminalView } from "./terminalStore";
+import { showInfo } from "./notificationStore";
+import { getActiveEditor } from "./activeEditor";
 import { openFolderDialog } from "./tauri";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import pkg from "../package.json";
 
 /**
  * 命令注册表 + 快捷键中枢（M4 / FR-07、FR-08）。
  * 核心命令与后续扩展命令（M6）共用此统一入口：
- * 命令面板按 id/title 模糊匹配执行，快捷键中枢按单表映射分发。
+ * 命令面板按 id/title 模糊匹配执行，快捷键中枢按单表映射分发，菜单栏按 id 引用执行。
  */
 export interface AlukaCommand {
   id: string;
@@ -17,6 +22,11 @@ export interface AlukaCommand {
   category?: string;
   /** 归一化快捷键，如 ctrl+shift+p / ctrl+` */
   keybinding?: string;
+  /**
+   * 仅用于菜单/面板展示的组合键（不进入快捷键中枢）。
+   * 适用于原生/Monaco 已绑定的按键（如 Ctrl+C、Ctrl+/），全局再拦截会双重触发。
+   */
+  displayKeybinding?: string;
   run: () => void | Promise<void>;
 }
 
@@ -60,7 +70,7 @@ export function normalizeKeybinding(kb: string): string {
   return mods.length > 0 ? [...mods, main].join("+") : main;
 }
 
-/** 归一化快捷键显示：ctrl+shift+p → Ctrl+Shift+P */
+/** 归一化快捷键显示：ctrl+shift+p → Ctrl+Shift+P；符号键还原为可读符号 */
 export function formatKeybinding(kb: string): string {
   return normalizeKeybinding(kb)
     .split("+")
@@ -77,9 +87,13 @@ export function formatKeybinding(kb: string): string {
                 ? "`"
                 : p === "backslash"
                   ? "\\"
-                  : p.length === 1
-                    ? p.toUpperCase()
-                    : p.charAt(0).toUpperCase() + p.slice(1),
+                  : p === "equal"
+                    ? "="
+                    : p === "minus"
+                      ? "-"
+                      : p.length === 1
+                        ? p.toUpperCase()
+                        : p.charAt(0).toUpperCase() + p.slice(1),
     )
     .join("+");
 }
@@ -249,6 +263,109 @@ function toggleQuickOpen(): void {
   s.togglePalette("files");
 }
 
+/* ---------------- 菜单命令辅助 ---------------- */
+
+/** 执行活动编辑器的具名 Action；编辑器未聚焦或动作未注册时给出提示 */
+function runEditorAction(actionId: string, missingHint: string): void {
+  const ed = getActiveEditor();
+  if (!ed) {
+    showInfo(missingHint);
+    return;
+  }
+  const action = ed.getAction(actionId);
+  if (!action) {
+    showInfo(`编辑器动作不可用：${actionId}`);
+    return;
+  }
+  void action.run();
+}
+
+/** 触发活动编辑器的核心命令（如 undo/redo，非 Action 注册表成员） */
+function editorTrigger(handlerId: string): void {
+  getActiveEditor()?.trigger("menu", handlerId, null);
+}
+
+/** 活动文件扩展名 → 终端运行命令模板（{path} 占位） */
+const RUN_TEMPLATES: Record<string, string> = {
+  py: 'python "{path}"',
+  python: 'python "{path}"',
+  js: 'node "{path}"',
+  mjs: 'node "{path}"',
+  cjs: 'node "{path}"',
+  go: 'go run "{path}"',
+  rs: "cargo run",
+  sh: 'bash "{path}"',
+  bash: 'bash "{path}"',
+  ps1: '& "{path}"',
+  bat: 'cmd /c "{path}"',
+  cmd: 'cmd /c "{path}"',
+};
+
+function delay(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** 在终端中运行活动文件：先保存脏文件 → 确保终端会话 → 写入命令 */
+async function runActiveFile(): Promise<void> {
+  const app = useAppStore.getState();
+  if (!app.workspaceRoot) {
+    showInfo("请先打开文件夹再运行文件");
+    return;
+  }
+  const path = useEditorStore.getState().activePath;
+  if (!path || path.startsWith("diff:")) {
+    showInfo("没有可运行的活动文件");
+    return;
+  }
+  const name = path.split(/[\\/]/).pop() ?? path;
+  const ext = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1).toLowerCase() : "";
+  const tpl = RUN_TEMPLATES[ext];
+  if (!tpl) {
+    showInfo(`暂不支持运行 .${ext || "（无扩展名）"} 文件`);
+    return;
+  }
+  await useEditorStore.getState().save(path);
+  if (!app.panelOpen) {
+    app.togglePanel();
+    // 等待 xterm 挂载并订阅输出流，避免首屏输出丢失
+    await delay(500);
+  }
+  const t = useTerminalStore.getState();
+  const alive =
+    t.sessions.find((s) => s.id === t.activeId && !s.closed) ??
+    t.sessions.find((s) => !s.closed);
+  const id = alive?.id ?? (await t.create(app.workspaceRoot, `运行 ${name}`));
+  if (id == null) {
+    showInfo("创建终端会话失败");
+    return;
+  }
+  await delay(300);
+  void t.write(id, tpl.replace("{path}", path) + "\r");
+}
+
+/** 新建文件/文件夹：工作区未打开时提示，否则交给资源管理器内联输入框 */
+function requestExplorerEntry(kind: "newFile" | "newFolder"): void {
+  const app = useAppStore.getState();
+  if (!app.workspaceRoot) {
+    showInfo("请先打开文件夹");
+    return;
+  }
+  app.requestExplorer(kind);
+}
+
+/** 关闭工作区：保存并关闭全部编辑器与终端，回到未打开状态 */
+async function closeWorkspace(): Promise<void> {
+  const app = useAppStore.getState();
+  if (!app.workspaceRoot) return;
+  await useEditorStore.getState().saveAllDirty();
+  useEditorStore.getState().closeAllTabs();
+  // 先重置工作区再清终端：若先杀终端，Panel 在 workspaceRoot 尚为空档期间
+  // 会因「sessions 为空」的自动创建条件重新建会话（竞态）
+  app.closeWorkspace();
+  const t = useTerminalStore.getState();
+  for (const s of [...t.sessions]) await t.kill(s.id);
+}
+
 export function registerCoreCommands(): void {
   registerCommands([
     {
@@ -317,7 +434,7 @@ export function registerCoreCommands(): void {
     {
       id: "workbench.action.focusFirstEditorGroup",
       title: "聚焦到第一编辑器组",
-      category: "查看",
+      category: "转到",
       keybinding: "ctrl+1",
       run: () => {
         const g = useEditorStore.getState().groups[0];
@@ -327,7 +444,7 @@ export function registerCoreCommands(): void {
     {
       id: "workbench.action.focusSecondEditorGroup",
       title: "聚焦到第二编辑器组",
-      category: "查看",
+      category: "转到",
       keybinding: "ctrl+2",
       run: () => {
         const g = useEditorStore.getState().groups[1];
@@ -357,14 +474,14 @@ export function registerCoreCommands(): void {
     {
       id: "workbench.action.nextEditor",
       title: "下一个编辑器",
-      category: "查看",
+      category: "转到",
       keybinding: "ctrl+pagedown",
       run: () => cycleTab(1),
     },
     {
       id: "workbench.action.previousEditor",
       title: "上一个编辑器",
-      category: "查看",
+      category: "转到",
       keybinding: "ctrl+pageup",
       run: () => cycleTab(-1),
     },
@@ -454,6 +571,256 @@ export function registerCoreCommands(): void {
       title: "Light+（亮色）",
       category: "主题",
       run: () => useSettingsStore.getState().update({ theme: "light-plus" }),
+    },
+
+    /* ---------------- 文件菜单 ---------------- */
+    {
+      id: "workbench.action.files.new",
+      title: "新建文本文件",
+      category: "文件",
+      keybinding: "ctrl+n",
+      run: () => requestExplorerEntry("newFile"),
+    },
+    {
+      id: "workbench.action.files.newFolder",
+      title: "新建文件夹",
+      category: "文件",
+      keybinding: "ctrl+shift+n",
+      run: () => requestExplorerEntry("newFolder"),
+    },
+    {
+      id: "workbench.action.closeFolder",
+      title: "关闭文件夹",
+      category: "文件",
+      run: () => void closeWorkspace(),
+    },
+    {
+      id: "workbench.action.closeAllEditors",
+      title: "关闭所有编辑器",
+      category: "文件",
+      run: () => useEditorStore.getState().closeAllTabs(),
+    },
+    {
+      id: "workbench.action.quit",
+      title: "退出",
+      category: "文件",
+      run: () => {
+        try {
+          void getCurrentWindow().close();
+        } catch {
+          showInfo("退出：仅 Tauri 应用内可用");
+        }
+      },
+    },
+
+    /* ---------------- 编辑菜单 ---------------- */
+    {
+      id: "edit.undo",
+      title: "撤销",
+      category: "编辑",
+      displayKeybinding: "Ctrl+Z",
+      run: () => editorTrigger("undo"),
+    },
+    {
+      id: "edit.redo",
+      title: "重做",
+      category: "编辑",
+      displayKeybinding: "Ctrl+Y",
+      run: () => editorTrigger("redo"),
+    },
+    {
+      id: "edit.cut",
+      title: "剪切",
+      category: "编辑",
+      displayKeybinding: "Ctrl+X",
+      run: () => runEditorAction("editor.action.clipboardCutAction", "剪切：请先聚焦编辑器"),
+    },
+    {
+      id: "edit.copy",
+      title: "复制",
+      category: "编辑",
+      displayKeybinding: "Ctrl+C",
+      run: () => runEditorAction("editor.action.clipboardCopyAction", "复制：请先聚焦编辑器"),
+    },
+    {
+      id: "edit.paste",
+      title: "粘贴",
+      category: "编辑",
+      displayKeybinding: "Ctrl+V",
+      run: () => runEditorAction("editor.action.clipboardPasteAction", "粘贴：请先聚焦编辑器"),
+    },
+    {
+      id: "edit.find",
+      title: "查找",
+      category: "编辑",
+      displayKeybinding: "Ctrl+F",
+      run: () => runEditorAction("actions.find", "查找：请先聚焦编辑器"),
+    },
+    {
+      id: "edit.replace",
+      title: "替换",
+      category: "编辑",
+      displayKeybinding: "Ctrl+H",
+      run: () => runEditorAction("editor.action.startFindReplaceAction", "替换：请先聚焦编辑器"),
+    },
+    {
+      id: "edit.commentLine",
+      title: "切换行注释",
+      category: "编辑",
+      displayKeybinding: "Ctrl+/",
+      run: () => runEditorAction("editor.action.commentLine", "行注释：请先聚焦编辑器"),
+    },
+    {
+      id: "edit.blockComment",
+      title: "切换块注释",
+      category: "编辑",
+      displayKeybinding: "Shift+Alt+A",
+      run: () => runEditorAction("editor.action.blockComment", "块注释：请先聚焦编辑器"),
+    },
+
+    /* ---------------- 选择菜单 ---------------- */
+    {
+      id: "editor.action.selectAll",
+      title: "全选",
+      category: "选择",
+      displayKeybinding: "Ctrl+A",
+      run: () => {
+        const ed = getActiveEditor();
+        const model = ed?.getModel();
+        if (ed && model) {
+          ed.setSelection(model.getFullModelRange());
+          ed.focus();
+        }
+      },
+    },
+    {
+      id: "editor.action.insertCursorAbove",
+      title: "在上面添加光标",
+      category: "选择",
+      displayKeybinding: "Ctrl+Alt+↑",
+      run: () => runEditorAction("editor.action.insertCursorAbove", "多光标：请先聚焦编辑器"),
+    },
+    {
+      id: "editor.action.insertCursorBelow",
+      title: "在下面添加光标",
+      category: "选择",
+      displayKeybinding: "Ctrl+Alt+↓",
+      run: () => runEditorAction("editor.action.insertCursorBelow", "多光标：请先聚焦编辑器"),
+    },
+    {
+      id: "editor.action.addSelectionToNextFindMatch",
+      title: "添加下一个匹配项",
+      category: "选择",
+      displayKeybinding: "Ctrl+D",
+      run: () =>
+        runEditorAction("editor.action.addSelectionToNextFindMatch", "多光标：请先聚焦编辑器"),
+    },
+    {
+      id: "editor.action.smartSelect.expand",
+      title: "扩大选择",
+      category: "选择",
+      displayKeybinding: "Shift+Alt+→",
+      run: () => runEditorAction("editor.action.smartSelect.expand", "扩大选择：请先聚焦编辑器"),
+    },
+
+    /* ---------------- 查看菜单 ---------------- */
+    {
+      id: "view.zoomIn",
+      title: "放大编辑器字体",
+      category: "查看",
+      keybinding: "ctrl+=",
+      run: () => {
+        const s = useSettingsStore.getState();
+        s.update({ fontSize: Math.min(40, s.fontSize + 2) });
+      },
+    },
+    {
+      id: "view.zoomOut",
+      title: "缩小编辑器字体",
+      category: "查看",
+      keybinding: "ctrl+-",
+      run: () => {
+        const s = useSettingsStore.getState();
+        s.update({ fontSize: Math.max(8, s.fontSize - 2) });
+      },
+    },
+    {
+      id: "view.zoomReset",
+      title: "重置编辑器字体",
+      category: "查看",
+      keybinding: "ctrl+0",
+      run: () => useSettingsStore.getState().update({ fontSize: 14 }),
+    },
+
+    /* ---------------- 转到菜单 ---------------- */
+    {
+      id: "workbench.action.gotoLine",
+      title: "转到行/列…",
+      category: "转到",
+      displayKeybinding: "Ctrl+G",
+      run: () => useAppStore.getState().setPalette("goto"),
+    },
+
+    /* ---------------- 运行菜单 ---------------- */
+    {
+      id: "run.activeFile",
+      title: "在终端中运行活动文件",
+      category: "运行",
+      run: () => void runActiveFile(),
+    },
+
+    /* ---------------- 终端菜单 ---------------- */
+    {
+      id: "terminal.new",
+      title: "新建终端",
+      category: "终端",
+      keybinding: "ctrl+shift+`",
+      run: () => {
+        const app = useAppStore.getState();
+        if (!app.workspaceRoot) {
+          showInfo("请先打开文件夹再使用终端");
+          return;
+        }
+        const t = useTerminalStore.getState();
+        // 先建会话再开面板：Panel 首开自动建会话的条件（sessions 为空）即不成立，避免双重创建
+        void t.create(app.workspaceRoot, `PowerShell ${t.sessions.length + 1}`).then((id) => {
+          if (id != null && !app.panelOpen) app.togglePanel();
+        });
+      },
+    },
+    {
+      id: "terminal.killActive",
+      title: "关闭当前终端",
+      category: "终端",
+      run: () => {
+        const t = useTerminalStore.getState();
+        if (t.activeId != null) void t.kill(t.activeId);
+        else showInfo("当前没有终端会话");
+      },
+    },
+    {
+      id: "terminal.clear",
+      title: "清空终端",
+      category: "终端",
+      run: () => {
+        const t = useTerminalStore.getState();
+        if (t.activeId == null) {
+          showInfo("当前没有终端会话");
+          return;
+        }
+        clearTerminalView(t.activeId);
+      },
+    },
+
+    /* ---------------- 帮助菜单 ---------------- */
+    {
+      id: "help.about",
+      title: "关于",
+      category: "帮助",
+      run: () =>
+        showInfo(
+          `Aluka IDE v${pkg.version} — 轻量级 IDE（Rust + Tauri 2 + React 18 + Monaco Editor），兼容 VS Code 插件子集`,
+        ),
     },
   ]);
 }

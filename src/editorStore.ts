@@ -126,6 +126,7 @@ interface EditorStore {
   setSplitDirection: (direction: SplitDirection) => void;
   save: (path: string) => Promise<void>;
   saveAllDirty: () => Promise<void>;
+  closeAllTabs: () => void;
   setError: (msg: string | null) => void;
   forceClose: (path: string, groupId?: string) => void;
 }
@@ -443,6 +444,16 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   },
 
   setError: (msg) => set({ error: msg }),
+
+  /** 关闭全部编辑器：脏文件沿用三选确认弹窗（首个脏文件弹窗后中断，用户处理后可再次执行） */
+  closeAllTabs: () => {
+    const s = get();
+    for (const g of s.groups) {
+      for (const t of [...g.tabs]) {
+        if (!get().closeTab(t.path, g.id)) return;
+      }
+    }
+  },
 
   forceClose: (path, targetGroupId) => {
     const s = get();

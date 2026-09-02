@@ -33,6 +33,21 @@ interface TerminalStore {
 /** 终端原始数据输出订阅总线 */
 const outputListeners = new Map<number, Set<(data: string) => void>>();
 
+/** 终端视图清空钩子：TerminalView 挂载时登记 xterm.clear，菜单「清空终端」经此触达视图层 */
+const clearHooks = new Map<number, () => void>();
+
+export function registerTerminalClearHook(id: number, hook: () => void): () => void {
+  clearHooks.set(id, hook);
+  return () => {
+    if (clearHooks.get(id) === hook) clearHooks.delete(id);
+  };
+}
+
+/** 清空指定会话的终端视图（保留当前提示符行） */
+export function clearTerminalView(id: number): void {
+  clearHooks.get(id)?.();
+}
+
 export function subscribeTerminalOutput(
   id: number,
   callback: (data: string) => void,

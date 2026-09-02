@@ -154,6 +154,7 @@ export default function Explorer() {
   const [menu, setMenu] = useState<{ x: number; y: number; node: FileNode } | null>(null);
   const [deleting, setDeleting] = useState<FileNode | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const explorerRequest = useAppStore((s) => s.explorerRequest);
 
   const pickFolder = async () => {
     try {
@@ -174,6 +175,14 @@ export default function Explorer() {
     setPendingNew({ parent, isDir });
     void expandDir(parent);
   };
+
+  // 菜单「文件 → 新建文本文件/文件夹」联动：seq 变化时在根目录弹内联输入框
+  useEffect(() => {
+    if (!explorerRequest || !workspaceRoot) return;
+    startNew(workspaceRoot, explorerRequest.kind === "newFolder");
+    // 仅由菜单请求信号驱动，避免常规重渲染时重复弹出输入框
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [explorerRequest]);
 
   const commitNew = async (parent: string, isDir: boolean, name: string) => {
     setPendingNew(null);

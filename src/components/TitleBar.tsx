@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { CodeXml, Copy, Minus, Square, X } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useAppStore } from "../store";
+import MenuBar from "./MenuBar";
 
 /** 非 Tauri 环境（纯浏览器 dev）下降级为 no-op，避免抛错 */
 function tryWindow() {
@@ -34,8 +35,6 @@ function useMaximized(): boolean {
   }, []);
   return maximized;
 }
-
-const MENUS = ["文件", "编辑", "选择", "查看", "转到", "运行", "终端", "帮助"];
 
 function ControlButton({
   onClick,
@@ -74,17 +73,8 @@ export default function TitleBar() {
       <span data-tauri-drag-region className="ml-2 shrink-0 text-[13px] font-medium">
         Aluka IDE
       </span>
-      {/* 菜单占位：M4 命令系统就绪后接入真实菜单 */}
-      <nav className="ml-4 flex items-center gap-0.5">
-        {MENUS.map((m) => (
-          <button
-            key={m}
-            className="rounded px-2 py-0.5 text-[13px] text-[var(--aluka-text)] hover:bg-[var(--aluka-hover)]"
-          >
-            {m}
-          </button>
-        ))}
-      </nav>
+      {/* 菜单栏：八个下拉菜单，命令项复用命令注册表（commands.ts） */}
+      <MenuBar />
       <div
         data-tauri-drag-region
         className="min-w-0 flex-1 truncate text-center text-[13px] text-[var(--aluka-text-dim)]"

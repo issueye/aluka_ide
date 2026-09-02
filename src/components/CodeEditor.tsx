@@ -11,6 +11,7 @@ import {
 } from "../editorStore";
 import { useStatusStore } from "../statusStore";
 import { useSettingsStore } from "../settingsStore";
+import { setActiveEditor, clearActiveEditor } from "../activeEditor";
 import { monacoThemeName } from "../theme";
 
 /**
@@ -81,6 +82,8 @@ export default function CodeEditor({ groupId, activePath }: Props) {
   const attachContainer = useCallback((el: HTMLDivElement | null) => {
     if (!el) {
       // 卸载：销毁 editor 与订阅，重置 refs，保证 remount 得到全新实例
+      const ed = editorRef.current;
+      if (ed) clearActiveEditor(ed);
       cursorHandlerRef.current?.dispose();
       cursorHandlerRef.current = null;
       focusHandlerRef.current?.dispose();
@@ -105,6 +108,8 @@ export default function CodeEditor({ groupId, activePath }: Props) {
       });
       const ed = editorRef.current;
       focusHandlerRef.current = ed.onDidFocusEditorWidget(() => {
+        // 登记为全局活动编辑器：菜单「编辑/选择」命令的执行目标
+        setActiveEditor(ed);
         useEditorStore.getState().setActiveGroup(groupId);
         const model = ed.getModel();
         const pos = ed.getPosition();

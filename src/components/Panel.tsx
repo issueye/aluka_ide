@@ -3,7 +3,11 @@ import { Plus, X } from "lucide-react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { useAppStore } from "../store";
-import { subscribeTerminalOutput, useTerminalStore } from "../terminalStore";
+import {
+  registerTerminalClearHook,
+  subscribeTerminalOutput,
+  useTerminalStore,
+} from "../terminalStore";
 import { useSettingsStore } from "../settingsStore";
 
 /**
@@ -108,6 +112,9 @@ function TerminalView({ id, visible }: TerminalViewProps) {
       term.write(data);
     });
 
+    // 登记清空钩子（菜单「终端 → 清空终端」）
+    const unsubClear = registerTerminalClearHook(id, () => term.clear());
+
     // 监听容器大小动态调整
     const resizeObserver = new ResizeObserver(() => {
       if (!visible || !containerRef.current) return;
@@ -124,6 +131,7 @@ function TerminalView({ id, visible }: TerminalViewProps) {
       resizeObserver.disconnect();
       onDataDisposable.dispose();
       unsubOutput();
+      unsubClear();
       term.dispose();
       terminalRef.current = null;
       fitAddonRef.current = null;
