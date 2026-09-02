@@ -150,6 +150,91 @@ export async function reapTerminal(id: number): Promise<void> {
   return invoke<void>("reap_terminal", { id });
 }
 
+/* ---------------- Git 源码管理（SCM / Diff） ---------------- */
+
+export interface GitFileChange {
+  path: string;
+  status: "M" | "A" | "D" | "U" | "R";
+  staged: boolean;
+}
+
+export interface GitRepoStatus {
+  isRepo: boolean;
+  branch: string | null;
+  staged: GitFileChange[];
+  unstaged: GitFileChange[];
+  ahead: number;
+  behind: number;
+}
+
+/** 查询工作区 Git 完整状态 */
+export async function getGitStatus(root: string): Promise<GitRepoStatus> {
+  return invoke<GitRepoStatus>("git_status", { root });
+}
+
+/** 暂存文件（空数组代表全量暂存） */
+export async function gitStage(root: string, paths: string[] = []): Promise<void> {
+  return invoke<void>("git_stage", { root, paths });
+}
+
+/** 取消暂存文件（空数组代表全量取消） */
+export async function gitUnstage(root: string, paths: string[] = []): Promise<void> {
+  return invoke<void>("git_unstage", { root, paths });
+}
+
+/** 放弃修改（已跟踪用 restore，未跟踪用 clean） */
+export async function gitDiscard(
+  root: string,
+  paths: string[],
+  isUntracked = false,
+): Promise<void> {
+  return invoke<void>("git_discard", { root, paths, isUntracked });
+}
+
+/** 提交暂存区变更 */
+export async function gitCommit(root: string, message: string): Promise<void> {
+  return invoke<void>("git_commit", { root, message });
+}
+
+/** 获取指定修订版本的文件历史内容（用于 Diff 对比） */
+export async function gitGetFileContent(
+  root: string,
+  path: string,
+  revision?: string,
+): Promise<string> {
+  return invoke<string>("git_get_file_content", { root, path, revision });
+}
+
+/** 列出所有本地分支 */
+export async function gitListBranches(root: string): Promise<string[]> {
+  return invoke<string[]>("git_list_branches", { root });
+}
+
+/** 切换分支 */
+export async function gitCheckout(root: string, branch: string): Promise<void> {
+  return invoke<void>("git_checkout", { root, branch });
+}
+
+/** 创建并切换到新分支 */
+export async function gitCreateBranch(root: string, name: string): Promise<void> {
+  return invoke<void>("git_create_branch", { root, name });
+}
+
+/** 推送当前分支 */
+export async function gitPush(root: string): Promise<void> {
+  return invoke<void>("git_push", { root });
+}
+
+/** 拉取当前分支 */
+export async function gitPull(root: string): Promise<void> {
+  return invoke<void>("git_pull", { root });
+}
+
+/** 初始化 Git 仓库 */
+export async function gitInit(root: string): Promise<void> {
+  return invoke<void>("git_init", { root });
+}
+
 /** 当前 git 分支（非 git 仓库返回 null） */
 export async function getGitBranch(root: string): Promise<string | null> {
   return invoke<string | null>("get_git_branch", { root });

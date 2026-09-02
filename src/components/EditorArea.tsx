@@ -1,10 +1,19 @@
 import { useState, useRef, useEffect } from "react";
-import { CodeXml, Columns2, File, FileText, Rows2, X } from "lucide-react";
+import {
+  CodeXml,
+  Columns2,
+  File,
+  FileText,
+  Rows2,
+  X,
+  GitCompare,
+} from "lucide-react";
 import { useAppStore } from "../store";
 import { openFolderDialog } from "../tauri";
 import type { EditorGroup, EditorTab } from "../editorStore";
 import { useEditorStore } from "../editorStore";
 import CodeEditor from "./CodeEditor";
+import DiffEditor from "./DiffEditor";
 
 const SHORTCUTS: [string, string][] = [
   ["Ctrl + Shift + P", "命令面板（M4）"],
@@ -124,7 +133,11 @@ function Tab({ tab, groupId, isActiveGroup }: { tab: EditorTab; groupId: string;
             : "bg-[var(--aluka-tabs-bg)] text-[var(--aluka-text-dim)] hover:bg-[var(--aluka-hover)]"
         }`}
       >
-        <File size={14} className="shrink-0" />
+        {tab.isDiff ? (
+          <GitCompare size={14} className="shrink-0 text-[#007acc]" />
+        ) : (
+          <File size={14} className="shrink-0" />
+        )}
         <span className="truncate">{tab.name}</span>
         <button
           title={dirty ? "关闭（有未保存修改）" : "关闭"}
@@ -284,9 +297,17 @@ function EditorGroupView({
         </div>
       </div>
 
-      {/* 编辑器本体 / 欢迎页 */}
+      {/* 编辑器本体 / 差异对比 / 欢迎页 */}
       {group.activePath ? (
-        <CodeEditor groupId={group.id} activePath={group.activePath} />
+        group.tabs.find((t) => t.path === group.activePath)?.isDiff ? (
+          <DiffEditor
+            path={group.activePath}
+            original={group.tabs.find((t) => t.path === group.activePath)?.diffOriginal ?? ""}
+            modified={group.tabs.find((t) => t.path === group.activePath)?.diffModified ?? ""}
+          />
+        ) : (
+          <CodeEditor groupId={group.id} activePath={group.activePath} />
+        )
       ) : isSingle ? (
         <Welcome onOpenFolder={onOpenFolder} />
       ) : (

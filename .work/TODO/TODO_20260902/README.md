@@ -290,17 +290,19 @@
 | 2026-09-02 | **用户反馈③：标签右键菜单** | 🔄 待人工 | 已实现标签浮动右键菜单（关闭/关闭其他/关闭全部/复制路径），样式同 Explorer 菜单（overlay-bg + 遮罩）。`npm run build` 通过；交互自动化验证受桌面帧过期限制未完成，请人工右键标签复核 |
 | 2026-09-02 | **T24 分屏与多编辑器组** | ✅ | `editorStore.ts` 重构支持 EditorGroup 与 single/horizontal/vertical 分屏布局；CodeEditor 支持同 Model 共享与独立视图状态隔离；EditorArea 支持独立组标签栏、向右/向下拆分按钮、关闭分屏与平滑可拖拽 Splitter 分割条；`commands.ts` 注册 `Ctrl+\` 拆分与 `Ctrl+1/2` 组焦点切换；`npm run build`、`cargo check` 与 `cargo test` 全绿通过 |
 | 2026-09-02 | **T25 终端 ConPTY 升级** | ✅ | 后端引入 `portable-pty = 0.8` 实现 Windows ConPTY 原生伪控制台会话与 `resize_terminal`；前端接入 `@xterm/xterm` 与 `@xterm/addon-fit`；解耦输出流直连 xterm 实例；支持完整 ANSI 彩色渲染、TUI 交互、Tab 补全、窗口 ResizeObserver 自适应与 Dark+/Light+ 主题联动；`npm run build`、`cargo check`、`cargo clippy` 与 `cargo test` 全绿通过 |
+| 2026-09-02 | **T26 Git 源码管理（SCM 与 Diff）** | ✅ | 后端新增 `git.rs` 模块（状态解析、暂存/撤销/放弃、提交、Diff 版本读取、分支管理、Push/Pull、Init）；前端新增 `gitStore.ts`、`SourceControlView.tsx` 侧边栏与 `DiffEditor.tsx`（Monaco Diff 对比）；ActivityBar 增加 SCM 入口与未提交文件徽标，StatusBar 增加分支切换/新建弹窗；`Ctrl+Shift+G` 快捷键注册；`npm run build`、`cargo check`、`cargo clippy` 与 `cargo test` 全绿通过 |
 
-### T25 终端 ConPTY 升级（交互式终端与 ANSI 支持）✅
+### T26 Git 源码管理（SCM 与 Diff 差异对比）✅
 
 - **具体目标**：
-  - Rust `terminal.rs`：基于 `portable-pty` 实现 ConPTY 伪控制台，支持原生 PowerShell/CMD 启动、双向数据流与 `resize_terminal`；
-  - 前端 `@xterm/xterm` + `@xterm/addon-fit`：xterm.js 渲染容器，全彩 ANSI 支持，输入按键直通 PTY，输出经订阅总线精准分发；
-  - `Panel.tsx`：多会话视图保活（保持渲染树与滚动位置）、`ResizeObserver` 动态 Fit 与尺寸同步、Dark+/Light+ 主题自适应。
+  - Rust `git.rs`：封装 `git status --porcelain`、`git add`、`git restore`、`git commit`、`git show`、`git branch`、`git checkout`、`git push/pull`；
+  - 前端 `gitStore.ts` + `SourceControlView.tsx`：暂存区/工作区两级列表、M/A/D/U 状态徽标、悬浮操作按钮、多行提交说明与快捷提交；
+  - `DiffEditor.tsx`：基于 `monaco.editor.createDiffEditor` 实现点击变更文件直接在编辑器区开启双栏差异比对；
+  - `StatusBar.tsx` + `ActivityBar.tsx`：状态栏分支点击弹出切换/新建分支菜单，活动栏展示未提交变更数 Badge，快捷键 `Ctrl+Shift+G`。
 - **验收标准**：
   - [x] `npm run build`（tsc strict + vite）通过
   - [x] `cargo check`、`cargo clippy -- -D warnings`、`cargo fmt`、`cargo test` 全绿通过
-  - [x] 原生伪控制台与 xterm 前端直通架构就位
+  - [x] SCM 面板、Diff 编辑器、分支管理全链路闭环
 
 ## 未决问题与次日移交（更新）
 
@@ -311,4 +313,5 @@
 - **M4（命令与设置）已完成**：T11/T12/T13 全部 ✅（见"追加任务（M4 命令与设置）"与验证记录）。
 - **T24（分屏与多编辑器组）已完成**：多组数据模型、Splitter 拖拽调节、独立组标签栏与快捷键分发全部就位。
 - **T25（终端 ConPTY 升级）已完成**：Windows 原生伪控制台、xterm.js 嵌入、ANSI 彩色高亮、动态 Resize 与多标签保活就位。
+- **T26（Git 源码管理与 Diff）已完成**：SCM 侧边栏、两级变更管理、Monaco Diff 对比、分支管理与状态栏/活动栏联动就位。
 - 次日（D5）：**M5 搜索/终端/状态栏** —— Rust `search_workspace`（大小写/整词/正则 + 截断）、状态栏 git 分支（shell out `git branch --show-current`）。autoSave=afterDelay 的行为联动也归入 M5 一并做。MVP+ 检查点位于 M5 收口。

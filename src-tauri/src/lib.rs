@@ -3,11 +3,16 @@
 //! search.rs（M5 全局搜索）、terminal.rs（M5 终端会话）。
 //! 后续模块：vsix.rs（M6 扩展安装）。
 
+pub mod git;
 pub mod search;
 pub mod terminal;
 pub mod vsix;
 
 /// 子模块命令在 generate_handler 中需以裸名引用（宏可见性）
+use git::{
+    git_checkout, git_commit, git_create_branch, git_discard, git_get_file_content, git_init,
+    git_list_branches, git_pull, git_push, git_stage, git_status, git_unstage,
+};
 use search::search_workspace;
 use terminal::{create_terminal, kill_terminal, reap_terminal, resize_terminal, write_terminal};
 use vsix::{
@@ -372,6 +377,18 @@ pub fn run() {
             kill_terminal,
             reap_terminal,
             get_git_branch,
+            git_status,
+            git_stage,
+            git_unstage,
+            git_discard,
+            git_commit,
+            git_get_file_content,
+            git_list_branches,
+            git_checkout,
+            git_create_branch,
+            git_push,
+            git_pull,
+            git_init,
             install_vsix,
             list_extensions,
             pick_vsix_dialog,

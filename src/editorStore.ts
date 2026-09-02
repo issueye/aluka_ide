@@ -23,6 +23,9 @@ export interface EditorTab {
   name: string;
   language: string;
   readOnly: boolean;
+  isDiff?: boolean;
+  diffOriginal?: string;
+  diffModified?: string;
 }
 
 export interface EditorGroup {
@@ -51,6 +54,11 @@ export const viewStates = new Map<string, monaco.editor.ICodeEditorViewState>();
 const loadingPaths = new Set<string>();
 /** Monaco 不可用时的纯文本草稿（降级编辑模式） */
 const fallbackDrafts = new Map<string, string>();
+
+function baseName(p: string): string {
+  const parts = p.split(/[\\/]/).filter(Boolean);
+  return parts.length > 0 ? (parts[parts.length - 1] ?? p) : p;
+}
 
 export function getDraft(path: string): string {
   return fallbackDrafts.get(path) ?? "";
@@ -106,6 +114,7 @@ interface EditorStore {
   activePath: string | null;
 
   openFile: (path: string, groupId?: string) => Promise<void>;
+  openDiff: (path: string, original: string, modified: string, title?: string, targetGroupId?: string) => void;
   closeTab: (path: string, groupId?: string) => boolean;
   resolveClose: (choice: "save" | "discard" | "cancel" | { path: string; choice: "save" | "discard" | "cancel" }) => Promise<void>;
   setActiveTab: (path: string, groupId?: string) => void;
@@ -227,6 +236,43 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     } finally {
       loadingPaths.delete(path);
     }
+  },
+
+  openDiff: (path, original, modified, title, targetGroupId) => {
+    const s = get();
+    const gId = targetGroupId ?? s.activeGroupId;
+    const targetGroup = s.groups.find((g) => g.id === gId) ?? s.groups[0];
+    const diffPath = `diff:${path}`;
+    const diffName = title ?? `${baseName(path)} (差异对比)`;
+    const lang = languageOf(path);
+
+    const existingTab = targetGroup?.tabs.find((t) => t.path === diffPath);
+    let nextTabs: EditorTab[];
+    if (existingTab) {
+      nextTabs = (targetGroup?.tabs ?? []).map((t) =>
+        t.path === diffPath ? { ...t, diffOriginal: original, diffModified: modified } : t,
+      );
+    } else {
+      const newTab: EditorTab = {
+        path: diffPath,
+        name: diffName,
+        language: lang,
+        readOnly: true,
+        isDiff: true,
+        diffOriginal: original,
+        diffModified: modified,
+      };
+      nextTabs = [...(targetGroup?.tabs ?? []), newTab];
+    }
+
+    const nextGroups = s.groups.map((g) =>
+      g.id === (targetGroup?.id ?? gId) ? { ...g, tabs: nextTabs, activePath: diffPath } : g,
+    );
+    set({
+      groups: nextGroups,
+      activeGroupId: targetGroup?.id ?? gId,
+      ...deriveActiveState(nextGroups, targetGroup?.id ?? gId),
+    });
   },
 
   closeTab: (path, groupId) => {

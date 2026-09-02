@@ -1,5 +1,6 @@
 import { useAppStore } from "./store";
 import { useEditorStore } from "./editorStore";
+import { useGitStore } from "./gitStore";
 import { useSettingsStore } from "./settingsStore";
 import { openFolderDialog } from "./tauri";
 
@@ -394,6 +395,40 @@ export function registerCoreCommands(): void {
       category: "查看",
       keybinding: "ctrl+shift+f",
       run: () => useAppStore.getState().selectView("search"),
+    },
+    {
+      id: "workbench.view.scm",
+      title: "源代码管理",
+      category: "查看",
+      keybinding: "ctrl+shift+g",
+      run: () => useAppStore.getState().selectView("scm"),
+    },
+    {
+      id: "git.refresh",
+      title: "Git: 刷新",
+      category: "Git",
+      run: () => {
+        const root = useAppStore.getState().workspaceRoot;
+        if (root) void useGitStore.getState().refresh(root);
+      },
+    },
+    {
+      id: "git.push",
+      title: "Git: 推送 (Push)",
+      category: "Git",
+      run: () => {
+        const root = useAppStore.getState().workspaceRoot;
+        if (root) void useGitStore.getState().push(root);
+      },
+    },
+    {
+      id: "git.pull",
+      title: "Git: 拉取 (Pull)",
+      category: "Git",
+      run: () => {
+        const root = useAppStore.getState().workspaceRoot;
+        if (root) void useGitStore.getState().pull(root);
+      },
     },
     {
       id: "workbench.view.extensions",

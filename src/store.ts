@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { watchWorkspace } from "./tauri";
 import { useTreeStore } from "./treeStore";
 
-export type SidebarView = "explorer" | "search" | "extensions";
+export type SidebarView = "explorer" | "search" | "scm" | "extensions";
 
 interface AppStore {
   /** 工作区根路径（null = 未打开） */
