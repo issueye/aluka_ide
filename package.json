@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "lucide-react": "^1.39.0",
     "monaco-editor": "^0.52.0",
     "react": "^18.3.1",

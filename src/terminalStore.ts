@@ -1,71 +1,89 @@
 import { create } from "zustand";
 import { listen } from "@tauri-apps/api/event";
-import { createTerminal, killTerminal, reapTerminal, writeTerminal } from "./tauri";
+import {
+  createTerminal,
+  killTerminal,
+  reapTerminal,
+  resizeTerminal,
+  writeTerminal,
+} from "./tauri";
 
 /**
- * 终端会话状态（M5 / FR-06）。
- * 输出以纯文本流累积（管道模式无屏幕控制序列）；输入行本地回显。
- * 事件订阅通过 setupTerminalListeners() 在 App 级安装一次。
+ * 终端会话状态（ConPTY 升级）：
+ * 状态仅管理会话元信息（ID、名称、存活状态），
+ * 字符输出直接经由订阅总线写入对应 xterm 实例，避免 React 多层重渲染与大字符串复制开销。
  */
 export interface TerminalSession {
   id: number;
   name: string;
-  /** 累积输出（含提示符/回显）；超长截头防内存膨胀 */
-  buffer: string;
-  /** 进程是否已退出（closed 事件后置位，UI 显示"会话已结束"） */
   closed: boolean;
 }
-
-const BUFFER_MAX_CHARS = 200_000;
 
 interface TerminalStore {
   sessions: TerminalSession[];
   activeId: number | null;
-  /** 会话输出版本号：Panel 依赖它触发滚动（buffer 是同一字符串引用的替换） */
-  create: (root: string, name: string) => Promise<void>;
-  writeLine: (id: number, line: string) => Promise<void>;
+  create: (root: string, name?: string, cols?: number, rows?: number) => Promise<number | null>;
+  write: (id: number, data: string) => Promise<void>;
+  resize: (id: number, cols: number, rows: number) => Promise<void>;
   kill: (id: number) => Promise<void>;
   setActive: (id: number) => void;
   removeLocal: (id: number) => void;
 }
 
-/** 追加输出并截头（保留尾部） */
-function appendBuffer(prev: string, data: string): string {
-  const next = prev + data;
-  return next.length > BUFFER_MAX_CHARS ? next.slice(-BUFFER_MAX_CHARS) : next;
+/** 终端原始数据输出订阅总线 */
+const outputListeners = new Map<number, Set<(data: string) => void>>();
+
+export function subscribeTerminalOutput(
+  id: number,
+  callback: (data: string) => void,
+): () => void {
+  let listeners = outputListeners.get(id);
+  if (!listeners) {
+    listeners = new Set();
+    outputListeners.set(id, listeners);
+  }
+  listeners.add(callback);
+  return () => {
+    const list = outputListeners.get(id);
+    list?.delete(callback);
+    if (list?.size === 0) {
+      outputListeners.delete(id);
+    }
+  };
 }
 
 export const useTerminalStore = create<TerminalStore>((set, get) => ({
   sessions: [],
   activeId: null,
 
-  create: async (root, name) => {
+  create: async (root, name, cols, rows) => {
     try {
-      const id = await createTerminal(root);
+      const id = await createTerminal(root, cols, rows);
+      const sessionName = name ?? `终端 ${id}`;
       set((s) => ({
-        sessions: [...s.sessions, { id, name, buffer: "", closed: false }],
+        sessions: [...s.sessions, { id, name: sessionName, closed: false }],
         activeId: id,
       }));
+      return id;
     } catch (e) {
       console.error("创建终端失败:", e);
+      return null;
     }
   },
 
-  writeLine: async (id, line) => {
-    // 本地立即回显输入行（管道模式下 cmd 不回显 stdin）
-    set((s) => ({
-      sessions: s.sessions.map((t) =>
-        t.id === id ? { ...t, buffer: appendBuffer(t.buffer, `${line}\r\n`) } : t,
-      ),
-    }));
+  write: async (id, data) => {
     try {
-      await writeTerminal(id, `${line}\r\n`);
+      await writeTerminal(id, data);
     } catch (e) {
-      set((s) => ({
-        sessions: s.sessions.map((t) =>
-          t.id === id ? { ...t, buffer: appendBuffer(t.buffer, `写入失败: ${String(e)}\r\n`) } : t,
-        ),
-      }));
+      console.error("写入终端失败:", e);
+    }
+  },
+
+  resize: async (id, cols, rows) => {
+    try {
+      await resizeTerminal(id, cols, rows);
+    } catch {
+      /* 忽略调整中可能发生的瞬时异常 */
     }
   },
 
@@ -80,6 +98,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
   setActive: (id) => set({ activeId: id }),
 
   removeLocal: (id) => {
+    outputListeners.delete(id);
     set((s) => {
       const sessions = s.sessions.filter((t) => t.id !== id);
       return {
@@ -99,18 +118,17 @@ export function setupTerminalListeners(): () => void {
     try {
       unlistenOutput = await listen<{ id: number; data: string }>("terminal:output", (e) => {
         const { id, data } = e.payload;
-        useTerminalStore.setState((s) => ({
-          sessions: s.sessions.map((t) =>
-            t.id === id && !t.closed ? { ...t, buffer: appendBuffer(t.buffer, data) } : t,
-          ),
-        }));
+        const listeners = outputListeners.get(id);
+        if (listeners) {
+          for (const cb of listeners) cb(data);
+        }
       });
       unlistenClosed = await listen<{ id: number }>("terminal:closed", (e) => {
         const { id } = e.payload;
         useTerminalStore.setState((s) => ({
           sessions: s.sessions.map((t) => (t.id === id ? { ...t, closed: true } : t)),
         }));
-        // 后端清理残留表项（读线程 EOF 后会话已死）
+        // 后端清理残留表项
         void reapTerminal(id).catch(() => {});
       });
       if (unlistenOutput) unsubs.push(unlistenOutput);
@@ -123,3 +141,4 @@ export function setupTerminalListeners(): () => void {
     for (const fn of unsubs) fn();
   };
 }
+

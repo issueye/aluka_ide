@@ -289,18 +289,18 @@
 | 2026-09-02 | **用户反馈②：Light+ 活动栏跟随 + 文字对比** | ✅ | ①活动栏背景改浅色跟随（#f3f3f3），新增 `--aluka-activity-active`（激活/悬停图标色）变量化 ActivityBar 硬编码 white；②新增 `--aluka-text-active`（list.activeSelectionForeground）与 `--aluka-overlay-bg`（editorWidget.background）两个主题变量，批量替换：标签激活文字（text-white→变量）、命令面板/搜索结果激活行、Panel 激活标签、保存确认/删除确认弹窗与通知 toast 的深底（#252526→overlay-bg）、Explorer 菜单底（#1f1f1f→overlay-bg）。Light+ 走查：激活标签深色文字清晰、整体浅色连贯；Dark+ 回归正常。蓝底按钮白字（--aluka-btn-bg）两主题对比均良好保留不动 |
 | 2026-09-02 | **用户反馈③：标签右键菜单** | 🔄 待人工 | 已实现标签浮动右键菜单（关闭/关闭其他/关闭全部/复制路径），样式同 Explorer 菜单（overlay-bg + 遮罩）。`npm run build` 通过；交互自动化验证受桌面帧过期限制未完成，请人工右键标签复核 |
 | 2026-09-02 | **T24 分屏与多编辑器组** | ✅ | `editorStore.ts` 重构支持 EditorGroup 与 single/horizontal/vertical 分屏布局；CodeEditor 支持同 Model 共享与独立视图状态隔离；EditorArea 支持独立组标签栏、向右/向下拆分按钮、关闭分屏与平滑可拖拽 Splitter 分割条；`commands.ts` 注册 `Ctrl+\` 拆分与 `Ctrl+1/2` 组焦点切换；`npm run build`、`cargo check` 与 `cargo test` 全绿通过 |
+| 2026-09-02 | **T25 终端 ConPTY 升级** | ✅ | 后端引入 `portable-pty = 0.8` 实现 Windows ConPTY 原生伪控制台会话与 `resize_terminal`；前端接入 `@xterm/xterm` 与 `@xterm/addon-fit`；解耦输出流直连 xterm 实例；支持完整 ANSI 彩色渲染、TUI 交互、Tab 补全、窗口 ResizeObserver 自适应与 Dark+/Light+ 主题联动；`npm run build`、`cargo check`、`cargo clippy` 与 `cargo test` 全绿通过 |
 
-### T24 分屏与多编辑器组（Split Editor Group）✅
+### T25 终端 ConPTY 升级（交互式终端与 ANSI 支持）✅
 
 - **具体目标**：
-  - `editorStore.ts`：数据模型升级为 `groups: EditorGroup[]`，支持分屏布局（single/horizontal/vertical）、分屏比（splitRatio）及跨组 Monaco Model 共享与独立视图状态；
-  - `CodeEditor.tsx`：多组并行挂载，视图状态按 `${groupId}:${path}` 隔离存储与恢复，焦点自动激活对应组并联动状态栏；
-  - `EditorArea.tsx`：实现 `EditorGroupView` 独立标签栏、向右/向下拆分与关闭组操作按钮、可平滑拖拽且双击复位的 `Splitter` 分割条；
-  - `commands.ts`：注册向右拆分（`Ctrl+\`）、向下拆分、关闭组、组焦点切换（`Ctrl+1` / `Ctrl+2`）及布局方向切换命令。
+  - Rust `terminal.rs`：基于 `portable-pty` 实现 ConPTY 伪控制台，支持原生 PowerShell/CMD 启动、双向数据流与 `resize_terminal`；
+  - 前端 `@xterm/xterm` + `@xterm/addon-fit`：xterm.js 渲染容器，全彩 ANSI 支持，输入按键直通 PTY，输出经订阅总线精准分发；
+  - `Panel.tsx`：多会话视图保活（保持渲染树与滚动位置）、`ResizeObserver` 动态 Fit 与尺寸同步、Dark+/Light+ 主题自适应。
 - **验收标准**：
   - [x] `npm run build`（tsc strict + vite）通过
-  - [x] `cargo check`、`cargo test` 全绿通过
-  - [x] 分屏数据模型与 Model 共享机制就位
+  - [x] `cargo check`、`cargo clippy -- -D warnings`、`cargo fmt`、`cargo test` 全绿通过
+  - [x] 原生伪控制台与 xterm 前端直通架构就位
 
 ## 未决问题与次日移交（更新）
 
@@ -310,4 +310,5 @@
 - 自动化测试通道备注：WebView2 的 AXPress 存在延迟落地现象；像素级点击受悬浮动画干扰易判定帧过期。**M4 新增结论**：`mcp key/type strategy=event`（应用前台时）可向 webview 可靠送达 JS keydown——Ctrl+Shift+P/Ctrl+P/Ctrl+B/Escape/回车全链路自动化实测通过，此前"合成键不可靠"的判断已被推翻（失败根因是窗口失焦与帧过期，非通路问题）。
 - **M4（命令与设置）已完成**：T11/T12/T13 全部 ✅（见"追加任务（M4 命令与设置）"与验证记录）。
 - **T24（分屏与多编辑器组）已完成**：多组数据模型、Splitter 拖拽调节、独立组标签栏与快捷键分发全部就位。
-- 次日（D5）：**M5 搜索/终端/状态栏** —— Rust `search_workspace`（大小写/整词/正则 + 截断）、终端会话（cmd 管道 + `terminal:output` 事件，多标签）、状态栏 git 分支（shell out `git branch --show-current`）。autoSave=afterDelay 的行为联动也归入 M5 一并做。MVP+ 检查点位于 M5 收口。
+- **T25（终端 ConPTY 升级）已完成**：Windows 原生伪控制台、xterm.js 嵌入、ANSI 彩色高亮、动态 Resize 与多标签保活就位。
+- 次日（D5）：**M5 搜索/终端/状态栏** —— Rust `search_workspace`（大小写/整词/正则 + 截断）、状态栏 git 分支（shell out `git branch --show-current`）。autoSave=afterDelay 的行为联动也归入 M5 一并做。MVP+ 检查点位于 M5 收口。

@@ -1,13 +1,10 @@
-//! 终端会话（M5 / FR-06）：cmd 管道 + 读线程 emit。
-//! 取舍（对齐 DEVELOPMENT_PLAN M5"cmd 管道 + 读线程 emit"）：
-//! 管道模式无 ConPTY，无屏幕控制序列/光标编辑；交互以"输入行 + 回显"提供，
-//! 满足 dir/git status 等常规命令实时回显的验收；真 ConPTY 留后续打磨。
-//! 编码：以 `cmd /K chcp 65001` 启动，会话输出整体为 UTF-8，无需额外转码依赖。
+//! 终端会话（ConPTY 升级）：基于 portable-pty 实现的 Windows 原生伪控制台会话。
+//! 支持完整 ANSI 转义序列、TUI 交互（vim/htop/REPL 等）、光标控制以及动态 Resize。
 
+use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use serde::Serialize;
 use std::collections::HashMap;
-use std::io::Write;
-use std::process::{Child, Command, Stdio};
+use std::io::{Read, Write};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter};
 
@@ -20,9 +17,9 @@ pub struct TerminalEvent {
 }
 
 struct Session {
-    child: Child,
-    /// 保留句柄用于写入（Drop 时随会话关闭）
-    stdin: std::process::ChildStdin,
+    master: Box<dyn MasterPty + Send>,
+    writer: Box<dyn Write + Send>,
+    child: Box<dyn portable_pty::Child + Send + Sync>,
 }
 
 #[derive(Default)]
@@ -31,65 +28,89 @@ pub struct TerminalState {
     next_id: Mutex<u32>,
 }
 
-/// 创建终端会话：在 root 下启动 cmd（未打开工作区时用用户主目录）。
-/// 返回会话 id；输出经读线程以 `terminal:output` emit，EOF 时 emit `terminal:closed`。
+/// 创建 ConPTY 伪控制台终端会话。
+/// 初始行列可选（默认为 80x24）。
 #[tauri::command]
 pub fn create_terminal(
     app: AppHandle,
     state: tauri::State<'_, TerminalState>,
     root: String,
+    cols: Option<u16>,
+    rows: Option<u16>,
 ) -> Result<u32, String> {
     let id = {
         let mut next = state.next_id.lock().map_err(|e| e.to_string())?;
         *next += 1;
         *next
     };
-    let mut command = Command::new("cmd");
-    command
-        .args(["/K", "chcp 65001 >nul"])
-        .current_dir(&root)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+
+    let pty_system = native_pty_system();
+    let pty_size = PtySize {
+        rows: rows.unwrap_or(24).max(1),
+        cols: cols.unwrap_or(80).max(1),
+        pixel_width: 0,
+        pixel_height: 0,
+    };
+
+    let pair = pty_system
+        .openpty(pty_size)
+        .map_err(|e| format!("创建 PTY 失败: {e}"))?;
+
+    // 在 Windows 下默认使用 powershell.exe，非 Windows 使用用户默认 shell
     #[cfg(windows)]
-    {
-        // CREATE_NO_WINDOW：避免每次开终端闪控制台窗（Windows 专属，其它平台保持可移植）
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000);
+    let mut cmd = {
+        let mut c = CommandBuilder::new("powershell.exe");
+        c.arg("-NoLogo");
+        c
+    };
+    #[cfg(not(windows))]
+    let mut cmd = {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+        CommandBuilder::new(shell)
+    };
+
+    if !root.is_empty() {
+        cmd.cwd(&root);
     }
-    let mut child = command.spawn().map_err(|e| format!("启动 cmd 失败: {e}"))?;
 
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "无法获取 cmd 标准输出".to_string())?;
-    let stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| "无法获取 cmd 错误输出".to_string())?;
+    let child = pair
+        .slave
+        .spawn_command(cmd)
+        .map_err(|e| format!("启动终端进程失败: {e}"))?;
 
-    // stdout/stderr 各一个读线程，合并为同一事件流
-    spawn_reader(app.clone(), id, stdout);
-    spawn_reader(app, id, stderr);
+    // 释放 slave 句柄，保持只有 child 持有 slave 端
+    drop(pair.slave);
 
-    let stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| "无法获取 cmd 标准输入".to_string())?;
-    state
-        .sessions
-        .lock()
-        .map_err(|e| e.to_string())?
-        .insert(id, Session { child, stdin });
+    let reader = pair
+        .master
+        .try_clone_reader()
+        .map_err(|e| format!("获取 PTY 读取器失败: {e}"))?;
+    let writer = pair
+        .master
+        .take_writer()
+        .map_err(|e| format!("获取 PTY 写入器失败: {e}"))?;
+
+    // 启动独立读线程
+    spawn_pty_reader(app, id, reader);
+
+    state.sessions.lock().map_err(|e| e.to_string())?.insert(
+        id,
+        Session {
+            master: pair.master,
+            writer,
+            child,
+        },
+    );
+
     Ok(id)
 }
 
-/// 读线程：持续读子进程输出流并 emit `terminal:output`；EOF 时 emit `terminal:closed`。
-fn spawn_reader(app: AppHandle, id: u32, mut stream: impl std::io::Read + Send + 'static) {
+/// 读线程：持续读取 PTY 输出并发送给前端
+fn spawn_pty_reader(app: AppHandle, id: u32, mut reader: Box<dyn Read + Send>) {
     std::thread::spawn(move || {
-        let mut buf = [0u8; 4096];
+        let mut buf = [0u8; 8192];
         loop {
-            match stream.read(&mut buf) {
+            match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
                     let data = String::from_utf8_lossy(&buf[..n]).into_owned();
@@ -107,7 +128,7 @@ fn spawn_reader(app: AppHandle, id: u32, mut stream: impl std::io::Read + Send +
     });
 }
 
-/// 向会话写入输入（前端发送整行，含行尾 \r\n；read 线程异步回显输出）
+/// 向终端写入原始按键数据与控制序列
 #[tauri::command]
 pub fn write_terminal(
     state: tauri::State<'_, TerminalState>,
@@ -119,16 +140,39 @@ pub fn write_terminal(
         .get_mut(&id)
         .ok_or_else(|| format!("终端会话不存在: {id}"))?;
     session
-        .stdin
+        .writer
         .write_all(data.as_bytes())
         .map_err(|e| format!("写入终端失败: {e}"))?;
     session
-        .stdin
+        .writer
         .flush()
         .map_err(|e| format!("刷新终端失败: {e}"))
 }
 
-/// 关闭会话：kill 子进程；读线程 EOF 后自行 emit terminal:closed。
+/// 调整终端窗口行列尺寸
+#[tauri::command]
+pub fn resize_terminal(
+    state: tauri::State<'_, TerminalState>,
+    id: u32,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    let sessions = state.sessions.lock().map_err(|e| e.to_string())?;
+    let session = sessions
+        .get(&id)
+        .ok_or_else(|| format!("终端会话不存在: {id}"))?;
+    session
+        .master
+        .resize(PtySize {
+            rows: rows.max(1),
+            cols: cols.max(1),
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(|e| format!("调整终端尺寸失败: {e}"))
+}
+
+/// 关闭终端会话
 #[tauri::command]
 pub fn kill_terminal(state: tauri::State<'_, TerminalState>, id: u32) -> Result<(), String> {
     let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
@@ -139,7 +183,7 @@ pub fn kill_terminal(state: tauri::State<'_, TerminalState>, id: u32) -> Result<
     Ok(())
 }
 
-/// 会话退出（读线程 EOF）后清理残留表项
+/// 会话退出后清理残留表项
 #[tauri::command]
 pub fn reap_terminal(state: tauri::State<'_, TerminalState>, id: u32) -> Result<(), String> {
     let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;

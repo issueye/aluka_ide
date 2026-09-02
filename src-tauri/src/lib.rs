@@ -9,7 +9,7 @@ pub mod vsix;
 
 /// 子模块命令在 generate_handler 中需以裸名引用（宏可见性）
 use search::search_workspace;
-use terminal::{create_terminal, kill_terminal, reap_terminal, write_terminal};
+use terminal::{create_terminal, kill_terminal, reap_terminal, resize_terminal, write_terminal};
 use vsix::{
     install_vsix, list_extensions, pick_vsix_dialog, read_extension_file, uninstall_extension,
 };
@@ -368,6 +368,7 @@ pub fn run() {
             search_workspace,
             create_terminal,
             write_terminal,
+            resize_terminal,
             kill_terminal,
             reap_terminal,
             get_git_branch,

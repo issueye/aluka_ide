@@ -9,6 +9,10 @@ edition = "2021"
 name = "aluka_ide_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[[bin]]
+name = "aluka-ide"
+path = "src/main.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -22,6 +26,7 @@ notify = "6"
 trash = "3"
 regex = "1"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
+portable-pty = "0.8"
 
 [profile.release]
 strip = true

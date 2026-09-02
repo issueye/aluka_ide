@@ -118,13 +118,26 @@ export async function searchWorkspace(options: SearchOptions): Promise<SearchRes
 }
 
 /** 创建终端会话，返回会话 id（输出经 terminal:output 事件流式回传） */
-export async function createTerminal(root: string): Promise<number> {
-  return invoke<number>("create_terminal", { root });
+export async function createTerminal(
+  root: string,
+  cols?: number,
+  rows?: number,
+): Promise<number> {
+  return invoke<number>("create_terminal", { root, cols, rows });
 }
 
-/** 向终端写入输入（整行，含行尾） */
+/** 向终端写入原始按键数据/控制序列 */
 export async function writeTerminal(id: number, data: string): Promise<void> {
   return invoke<void>("write_terminal", { id, data });
+}
+
+/** 动态调整终端尺寸（cols, rows） */
+export async function resizeTerminal(
+  id: number,
+  cols: number,
+  rows: number,
+): Promise<void> {
+  return invoke<void>("resize_terminal", { id, cols, rows });
 }
 
 /** 关闭终端会话 */
