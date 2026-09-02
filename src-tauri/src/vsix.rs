@@ -89,8 +89,69 @@ fn read_manifest_from_zip<R: std::io::Read + std::io::Seek>(
     Ok((manifest, name))
 }
 
-/// 安装本地 VSIX：解包清单 → 覆盖安装到 ~/.aluka-ide/extensions/<publisher>.<name>/。
-/// 返回解析后的清单与安装目录。
+/// 从 Reader 中解包安装 VSIX 到全局扩展目录
+fn unpack_and_install<R: std::io::Read + std::io::Seek>(
+    app: &AppHandle,
+    mut reader: R,
+) -> Result<InstallResult, String> {
+    let (manifest, manifest_entry) = read_manifest_from_zip(&mut reader)?;
+
+    let name = manifest
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or("清单缺少 name 字段")?;
+    let publisher = manifest
+        .get("publisher")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
+        return Err(format!("扩展名非法（仅允许小写字母/数字/连字符）: {name}"));
+    }
+    let dest_root = global_extensions_dir(app)?.join(format!("{publisher}.{name}"));
+
+    // 覆盖安装：先移除旧目录（程序管理的扩展目录，非用户文档）
+    if dest_root.exists() {
+        std::fs::remove_dir_all(&dest_root).map_err(|e| format!("清理旧版本失败: {e}"))?;
+    }
+    std::fs::create_dir_all(&dest_root).map_err(|e| format!("创建扩展目录失败: {e}"))?;
+
+    let mut zip = zip::ZipArchive::new(reader).map_err(|e| format!("打开 VSIX 失败: {e}"))?;
+    // 清单位于 extension/ 前缀下时，所有条目整体剥掉该前缀
+    let strip_prefix = manifest_entry
+        .split('/')
+        .next()
+        .map(|p| format!("{p}/"))
+        .unwrap_or_default();
+
+    for i in 0..zip.len() {
+        let mut entry = zip.by_index(i).map_err(|e| format!("读取条目失败: {e}"))?;
+        let raw = entry.name().to_string();
+        let rel = raw
+            .strip_prefix(&strip_prefix)
+            .map(str::to_string)
+            .unwrap_or(raw.clone());
+        if rel.is_empty() || rel.ends_with('/') {
+            continue; // 目录条目按需创建
+        }
+        let dest = safe_target(&dest_root, &rel)?;
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
+        }
+        let mut out = std::fs::File::create(&dest).map_err(|e| format!("写入失败: {e}"))?;
+        std::io::copy(&mut entry, &mut out).map_err(|e| format!("解包失败: {e}"))?;
+    }
+
+    Ok(InstallResult {
+        dir: dest_root.to_string_lossy().into_owned(),
+        manifest,
+    })
+}
+
+/// 安装本地 VSIX 文件
 #[tauri::command]
 pub async fn install_vsix(app: AppHandle, vsix_path: String) -> Result<InstallResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -99,62 +160,18 @@ pub async fn install_vsix(app: AppHandle, vsix_path: String) -> Result<InstallRe
             return Err(format!("文件不存在: {vsix_path}"));
         }
         let file = std::fs::File::open(path).map_err(|e| format!("打开 VSIX 失败: {e}"))?;
-        let (manifest, manifest_entry) =
-            read_manifest_from_zip(&mut (file.try_clone().map_err(|e| e.to_string())?))?;
+        unpack_and_install(&app, file)
+    })
+    .await
+    .map_err(|e| format!("安装任务失败: {e}"))?
+}
 
-        let name = manifest
-            .get("name")
-            .and_then(|v| v.as_str())
-            .ok_or("清单缺少 name 字段")?;
-        let publisher = manifest
-            .get("publisher")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-        if name.is_empty()
-            || !name
-                .chars()
-                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-        {
-            return Err(format!("扩展名非法（仅允许小写字母/数字/连字符）: {name}"));
-        }
-        let dest_root = global_extensions_dir(&app)?.join(format!("{publisher}.{name}"));
-
-        // 覆盖安装：先移除旧目录（程序管理的扩展目录，非用户文档）
-        if dest_root.exists() {
-            std::fs::remove_dir_all(&dest_root).map_err(|e| format!("清理旧版本失败: {e}"))?;
-        }
-        std::fs::create_dir_all(&dest_root).map_err(|e| format!("创建扩展目录失败: {e}"))?;
-
-        let mut zip = zip::ZipArchive::new(file).map_err(|e| format!("打开 VSIX 失败: {e}"))?;
-        // 清单位于 extension/ 前缀下时，所有条目整体剥掉该前缀
-        let strip_prefix = manifest_entry
-            .split('/')
-            .next()
-            .map(|p| format!("{p}/"))
-            .unwrap_or_default();
-
-        for i in 0..zip.len() {
-            let mut entry = zip.by_index(i).map_err(|e| format!("读取条目失败: {e}"))?;
-            let raw = entry.name().to_string();
-            let rel = raw
-                .strip_prefix(&strip_prefix)
-                .map(str::to_string)
-                .unwrap_or(raw.clone());
-            if rel.is_empty() || rel.ends_with('/') {
-                continue; // 目录条目按需创建
-            }
-            let dest = safe_target(&dest_root, &rel)?;
-            if let Some(parent) = dest.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
-            }
-            let mut out = std::fs::File::create(&dest).map_err(|e| format!("写入失败: {e}"))?;
-            std::io::copy(&mut entry, &mut out).map_err(|e| format!("解包失败: {e}"))?;
-        }
-
-        Ok(InstallResult {
-            dir: dest_root.to_string_lossy().into_owned(),
-            manifest,
-        })
+/// 从二进制字节流安装 VSIX（用于开源插件市场在线下载安装）
+#[tauri::command]
+pub async fn install_vsix_bytes(app: AppHandle, bytes: Vec<u8>) -> Result<InstallResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let cursor = std::io::Cursor::new(bytes);
+        unpack_and_install(&app, cursor)
     })
     .await
     .map_err(|e| format!("安装任务失败: {e}"))?

@@ -265,6 +265,12 @@ export async function installVsix(vsixPath: string): Promise<InstallResult> {
   return invoke<InstallResult>("install_vsix", { vsixPath });
 }
 
+/** 从二进制字节流安装 VSIX（用于开源市场在线安装） */
+export async function installVsixBytes(bytes: number[] | Uint8Array): Promise<InstallResult> {
+  const data = bytes instanceof Uint8Array ? Array.from(bytes) : bytes;
+  return invoke<InstallResult>("install_vsix_bytes", { bytes: data });
+}
+
 /** 扫描已安装扩展（全局 + 工作区 .aluka/extensions） */
 export async function listExtensions(workspaceRoot: string | null): Promise<InstalledExtension[]> {
   return invoke<InstalledExtension[]>("list_extensions", { workspaceRoot });

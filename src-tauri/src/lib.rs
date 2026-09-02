@@ -16,7 +16,8 @@ use git::{
 use search::search_workspace;
 use terminal::{create_terminal, kill_terminal, reap_terminal, resize_terminal, write_terminal};
 use vsix::{
-    install_vsix, list_extensions, pick_vsix_dialog, read_extension_file, uninstall_extension,
+    install_vsix, install_vsix_bytes, list_extensions, pick_vsix_dialog, read_extension_file,
+    uninstall_extension,
 };
 
 use notify::{RecursiveMode, Watcher};
@@ -390,6 +391,7 @@ pub fn run() {
             git_pull,
             git_init,
             install_vsix,
+            install_vsix_bytes,
             list_extensions,
             pick_vsix_dialog,
             read_extension_file,
