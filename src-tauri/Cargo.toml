@@ -1,0 +1,29 @@
+[package]
+name = "aluka-ide"
+version = "0.1.0"
+description = "轻量级 IDE：VS Code 观感，兼容 VS Code 插件子集"
+authors = ["issueye"]
+edition = "2021"
+
+[lib]
+name = "aluka_ide_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+walkdir = "2"
+rfd = "0.15"
+notify = "6"
+trash = "3"
+regex = "1"
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1

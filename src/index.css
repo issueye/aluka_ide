@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+/*
+ * Aluka 主题变量（--aluka-*）
+ * 色值对齐 VS Code Dark+，后续由主题引擎（M4/M6）动态覆盖以兼容 VS Code 主题插件。
+ */
+:root {
+  --aluka-bg: #1e1e1e; /* 编辑器背景 */
+  --aluka-sidebar-bg: #252526; /* 侧边栏 */
+  --aluka-activity-bg: #333333; /* 活动栏 */
+  --aluka-activity-fg: #858585; /* 活动栏未激活图标 */
+  --aluka-activity-active: #ffffff; /* 活动栏激活/悬停图标 */
+  --aluka-titlebar-bg: #3c3c3c; /* 标题栏 */
+  --aluka-statusbar-bg: #007acc; /* 状态栏 */
+  --aluka-border: #2b2b2b; /* 分隔线 */
+  --aluka-tabs-bg: #252526; /* 标签栏 */
+  --aluka-panel-bg: #1e1e1e; /* 底部面板 */
+  --aluka-text: #cccccc; /* 主文本 */
+  --aluka-text-dim: #8b8b8b; /* 次要文本 */
+  --aluka-hover: #2a2d2e; /* 悬停 */
+  --aluka-active: #37373d; /* 选中 */
+  --aluka-text-active: #ffffff; /* 选中/激活文字（亮色主题由引擎覆盖为深色） */
+  --aluka-overlay-bg: #252526; /* 浮层/弹窗背景（亮色主题由引擎覆盖为白） */
+  --aluka-input-bg: #3c3c3c; /* 输入/键帽 */
+  --aluka-btn-bg: #0e639c; /* 主按钮 */
+  --aluka-btn-hover: #1177bb;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  font-size: 13px;
+  color: var(--aluka-text);
+  background: var(--aluka-bg);
+  /* IDE 观感：全局禁用文本选择（输入框后续单独放开） */
+  user-select: none;
+}
+
+/* VS Code 风格细滚动条 */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(121, 121, 121, 0.4);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 100, 100, 0.7);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}

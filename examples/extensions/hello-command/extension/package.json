@@ -1,0 +1,35 @@
+{
+  "name": "hello-command",
+  "displayName": "Aluka Hello 命令示例",
+  "description": "命令/快捷键/片段 + main.js 沙箱示例（L3）：命令面板执行后弹出通知",
+  "version": "0.0.1",
+  "publisher": "aluka-samples",
+  "engines": { "vscode": "^1.0.0" },
+  "main": "./main.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "aluka-hello.sayHello",
+        "title": "Hello（示例扩展）",
+        "category": "帮助"
+      },
+      {
+        "command": "aluka-hello.workspaceInfo",
+        "title": "工作区信息（示例扩展）",
+        "category": "帮助"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "aluka-hello.sayHello",
+        "key": "ctrl+alt+h"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "javascript",
+        "path": "./snippets/javascript.json"
+      }
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.local
+.DS_Store
+
+# Tauri / Rust
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# 日志与临时文件
+*.log
+.work/**/assets/tmp/
+.work/**/assets/
+examples/extensions/dist/

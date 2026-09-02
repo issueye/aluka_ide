@@ -1,0 +1,7 @@
+{
+  "alukalog": {
+    "prefix": "alukalog",
+    "body": ["console.log(\"[aluka] ${1:label}\", ${2:value});"],
+    "description": "插入调试日志（Aluka 示例片段）"
+  }
+}

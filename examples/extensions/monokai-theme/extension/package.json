@@ -1,0 +1,17 @@
+{
+  "name": "monokai-theme",
+  "displayName": "Monokai Theme（Aluka 示例）",
+  "description": "纯颜色主题示例：验证 VSIX 安装后 UI + 编辑器双通道配色生效（L2）",
+  "version": "0.0.1",
+  "publisher": "aluka-samples",
+  "engines": { "vscode": "^1.0.0" },
+  "categories": ["Themes"],
+  "contributes": {
+    "themes": [
+      {
+        "label": "Monokai（Aluka 示例）",
+        "path": "./themes/monokai-color-theme.json"
+      }
+    ]
+  }
+}
