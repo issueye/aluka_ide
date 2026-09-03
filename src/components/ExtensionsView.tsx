@@ -29,12 +29,17 @@ import {
   getDisabledExtensions,
   loadExtensions,
   setExtensionDisabled,
+  unloadExtension,
 } from "../extHost/registry";
 import { useNotificationStore } from "../notificationStore";
 import {
   useMarketplaceStore,
+  isNewerVersion,
   type MarketplaceExtension,
 } from "../marketplaceStore";
+import ExtensionDetail, {
+  type ExtensionDetailTarget,
+} from "./ExtensionDetail";
 
 function extDisplayName(m: ExtensionManifest): string {
   return m.displayName ?? m.name;
@@ -82,6 +87,8 @@ export default function ExtensionsView() {
   >([]);
   const [busyLocal, setBusyLocal] = useState(false);
   const [disabled, setDisabled] = useState<Set<string>>(new Set());
+  /** 详情页目标：null = 列表；切换 Tab 时清空 */
+  const [detail, setDetail] = useState<ExtensionDetailTarget | null>(null);
   const show = useNotificationStore((s) => s.show);
 
   const {
@@ -91,6 +98,7 @@ export default function ExtensionsView() {
     loading: marketLoading,
     error: marketError,
     installingIds,
+    downloadProgress,
     activeTab,
     setQuery,
     setActiveTab,
@@ -124,7 +132,7 @@ export default function ExtensionsView() {
 
   // 已安装扩展 ID 集合（小写 publisher.name）
   const installedIdMap = useMemo(() => {
-    const map = new Map<string, InstalledExtension>();
+    const map = new Map<string, InstalledExtension & { manifest: ExtensionManifest }>();
     for (const item of installedList) {
       const id = extensionId(item.manifest).toLowerCase();
       map.set(id, item);
@@ -142,7 +150,7 @@ export default function ExtensionsView() {
     return () => clearTimeout(timer);
   }, [query, search]);
 
-  // 本地 VSIX 安装
+  // 本地 VSIX 安装（与在线安装一致：装完即时激活，无需重启）
   const handleInstallLocalVsix = async () => {
     setBusyLocal(true);
     try {
@@ -150,10 +158,7 @@ export default function ExtensionsView() {
       if (!vsixPath) return;
       const r = await installVsix(vsixPath);
       const m = parseManifest(r.manifest);
-      show(
-        "info",
-        `扩展 ${m ? extDisplayName(m) : ""} 安装成功，重开应用后完全生效`,
-      );
+      show("info", `扩展 ${m ? extDisplayName(m) : ""} 安装成功`);
       await refreshInstalled();
     } catch (e) {
       show("error", `安装失败: ${String(e)}`);
@@ -173,10 +178,11 @@ export default function ExtensionsView() {
     }
   };
 
-  // 卸载
-  const handleUninstall = async (dir: string, name: string) => {
+  // 卸载（extId 提供时热清理运行时资产：命令/主题/片段 provider）
+  const handleUninstall = async (dir: string, name: string, extId?: string) => {
     try {
       await uninstallExtension(dir);
+      if (extId) unloadExtension(extId);
       show("info", `扩展 ${name} 已卸载`);
       await refreshInstalled();
     } catch (e) {
@@ -194,6 +200,82 @@ export default function ExtensionsView() {
   const isSearching = Boolean(query.trim());
   const displayMarketList = isSearching ? results : popular;
 
+  /** 进入详情后若扩展被卸载/列表刷新导致目标消失，退回列表 */
+  useEffect(() => {
+    if (detail?.kind !== "installed") return;
+    if (!installedList.some((x) => x.dir === detail.dir)) setDetail(null);
+  }, [installedList, detail]);
+
+  const openMarketplaceTab = (tab: "installed" | "marketplace") => {
+    setDetail(null);
+    setActiveTab(tab);
+  };
+
+  /** 详情页渲染（含头部图标与操作闭包） */
+  const renderDetail = () => {
+    if (!detail) return null;
+    if (detail.kind === "installed") {
+      const item = installedList.find((x) => x.dir === detail.dir);
+      if (!item) return null;
+      const id = extensionId(item.manifest);
+      const isDisabled = disabled.has(id);
+      return (
+        <ExtensionDetail
+          detail={{ ...detail, disabled: isDisabled }}
+          icon={<ExtensionIcon displayName={extDisplayName(item.manifest)} />}
+          onBack={() => setDetail(null)}
+          onToggleDisabled={() => {
+            handleToggleDisabled(id, !isDisabled);
+            setDetail({ ...detail, disabled: !isDisabled });
+          }}
+          onUninstall={() => {
+            void handleUninstall(
+              item.dir,
+              extDisplayName(item.manifest),
+              extensionId(item.manifest),
+            ).then(() => setDetail(null));
+          }}
+        />
+      );
+    }
+    const isInstalling = installingIds.has(detail.ext.id);
+    const installedItem = installedIdMap.get(detail.ext.id);
+    const outdated = installedItem
+      ? isNewerVersion(detail.ext.version, installedItem.manifest.version)
+      : false;
+    const pct = downloadProgress[detail.ext.id];
+    return (
+      <ExtensionDetail
+        detail={detail}
+        icon={
+          <ExtensionIcon
+            url={detail.ext.iconUrl}
+            displayName={detail.ext.displayName || detail.ext.name}
+          />
+        }
+        onBack={() => setDetail(null)}
+        onInstall={
+          installedItem && !outdated
+            ? undefined
+            : () => void handleMarketplaceInstall(detail.ext)
+        }
+        installing={isInstalling}
+        installProgress={pct}
+        outdated={outdated}
+        latestVersion={detail.ext.version}
+        installed={Boolean(installedItem)}
+      />
+    );
+  };
+
+  if (detail) {
+    return (
+      <div className="flex h-full flex-col text-[12px]">
+        <div className="min-h-0 flex-1">{renderDetail()}</div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full flex-col text-[12px]">
       {/* 顶部搜索框 */}
@@ -209,7 +291,7 @@ export default function ExtensionsView() {
               const val = e.target.value;
               setQuery(val);
               if (val.trim() && activeTab !== "marketplace") {
-                setActiveTab("marketplace");
+                openMarketplaceTab("marketplace");
               }
             }}
             placeholder="搜索开源市场扩展 (Open VSX)..."
@@ -229,7 +311,7 @@ export default function ExtensionsView() {
         <div className="mt-2 flex items-center justify-between">
           <div className="flex rounded bg-[var(--aluka-input-bg)] p-0.5 text-[11px]">
             <button
-              onClick={() => setActiveTab("installed")}
+              onClick={() => openMarketplaceTab("installed")}
               className={`rounded px-2 py-0.5 ${
                 activeTab === "installed"
                   ? "bg-[var(--aluka-active)] font-medium text-[var(--aluka-text)] shadow-sm"
@@ -239,7 +321,7 @@ export default function ExtensionsView() {
               已安装 ({installedList.length})
             </button>
             <button
-              onClick={() => setActiveTab("marketplace")}
+              onClick={() => openMarketplaceTab("marketplace")}
               className={`rounded px-2 py-0.5 ${
                 activeTab === "marketplace"
                   ? "bg-[var(--aluka-active)] font-medium text-[var(--aluka-text)] shadow-sm"
@@ -281,7 +363,7 @@ export default function ExtensionsView() {
                 <Blocks size={36} strokeWidth={1} />
                 <p className="text-[12px]">尚未安装扩展</p>
                 <button
-                  onClick={() => setActiveTab("marketplace")}
+                  onClick={() => openMarketplaceTab("marketplace")}
                   className="mt-1 rounded bg-[var(--aluka-btn-bg)] px-3 py-1 text-[11px] text-white hover:bg-[var(--aluka-btn-hover)]"
                 >
                   去开源插件市场看看
@@ -294,7 +376,30 @@ export default function ExtensionsView() {
                 return (
                   <div
                     key={dir}
-                    className="mb-1 flex gap-2.5 rounded border border-transparent p-2 hover:border-[var(--aluka-border)] hover:bg-[var(--aluka-hover)]"
+                    role="button"
+                    tabIndex={0}
+                    title="查看详情"
+                    onClick={() =>
+                      setDetail({
+                        kind: "installed",
+                        dir,
+                        origin: origin === "workspace" ? "workspace" : "global",
+                        manifest: m,
+                        disabled: isDisabled,
+                      })
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        setDetail({
+                          kind: "installed",
+                          dir,
+                          origin: origin === "workspace" ? "workspace" : "global",
+                          manifest: m,
+                          disabled: isDisabled,
+                        });
+                      }
+                    }}
+                    className="mb-1 flex cursor-pointer gap-2.5 rounded border border-transparent p-2 hover:border-[var(--aluka-border)] hover:bg-[var(--aluka-hover)]"
                   >
                     <ExtensionIcon displayName={extDisplayName(m)} />
                     <div className="min-w-0 flex-1">
@@ -316,7 +421,10 @@ export default function ExtensionsView() {
                       </div>
                       <div className="mt-1.5 flex items-center gap-3">
                         <button
-                          onClick={() => handleToggleDisabled(id, !isDisabled)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleDisabled(id, !isDisabled);
+                          }}
                           className="text-[11px] text-[#3794ff] hover:underline"
                         >
                           {isDisabled ? "启用" : "禁用"}
@@ -324,9 +432,10 @@ export default function ExtensionsView() {
                         {origin === "global" && (
                           <button
                             title="卸载"
-                            onClick={() =>
-                              void handleUninstall(dir, extDisplayName(m))
-                            }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleUninstall(dir, extDisplayName(m), id);
+                            }}
                             className="flex items-center gap-0.5 text-[11px] text-[#f48771] hover:underline"
                           >
                             <Trash2 size={11} />
@@ -383,12 +492,23 @@ export default function ExtensionsView() {
               displayMarketList.map((ext) => {
                 const isInstalling = installingIds.has(ext.id);
                 const installedItem = installedIdMap.get(ext.id);
+                const outdated = installedItem
+                  ? isNewerVersion(ext.version, installedItem.manifest.version)
+                  : false;
+                const pct = downloadProgress[ext.id];
                 const dlCountFormatted = formatDownloadCount(ext.downloadCount);
 
                 return (
                   <div
                     key={ext.id}
-                    className="mb-1.5 flex gap-2.5 rounded border border-transparent p-2 hover:border-[var(--aluka-border)] hover:bg-[var(--aluka-hover)]"
+                    role="button"
+                    tabIndex={0}
+                    title="查看详情"
+                    onClick={() => setDetail({ kind: "market", ext })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") setDetail({ kind: "market", ext });
+                    }}
+                    className="mb-1.5 flex cursor-pointer gap-2.5 rounded border border-transparent p-2 hover:border-[var(--aluka-border)] hover:bg-[var(--aluka-hover)]"
                   >
                     <ExtensionIcon
                       url={ext.iconUrl}
@@ -433,8 +553,24 @@ export default function ExtensionsView() {
                             className="flex items-center gap-1 rounded bg-[var(--aluka-btn-bg)] px-2 py-0.5 text-[11px] text-white opacity-70"
                           >
                             <Loader2 size={11} className="animate-spin" />
-                            <span>安装中…</span>
+                            <span>{pct != null ? `安装中 ${pct}%` : "安装中…"}</span>
                           </button>
+                        ) : installedItem && outdated ? (
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-[var(--aluka-text-dim)]">
+                              v{installedItem.manifest.version} → v{ext.version}
+                            </span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void handleMarketplaceInstall(ext);
+                              }}
+                              className="flex items-center gap-1 rounded bg-[var(--aluka-btn-bg)] px-2.5 py-0.5 text-[11px] font-medium text-white hover:bg-[var(--aluka-btn-hover)]"
+                            >
+                              <Download size={11} />
+                              <span>更新</span>
+                            </button>
+                          </div>
                         ) : installedItem ? (
                           <div className="flex items-center gap-2">
                             <span className="flex items-center gap-1 rounded bg-[#89d185]/20 px-1.5 py-0.5 text-[10px] font-medium text-[#89d185]">
@@ -443,12 +579,14 @@ export default function ExtensionsView() {
                             </span>
                             {installedItem.origin === "global" && (
                               <button
-                                onClick={() =>
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   void handleUninstall(
                                     installedItem.dir,
                                     ext.displayName || ext.name,
-                                  )
-                                }
+                                    extensionId(installedItem.manifest),
+                                  );
+                                }}
                                 className="text-[11px] text-[#f48771] hover:underline"
                               >
                                 卸载
@@ -457,7 +595,10 @@ export default function ExtensionsView() {
                           </div>
                         ) : (
                           <button
-                            onClick={() => void handleMarketplaceInstall(ext)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleMarketplaceInstall(ext);
+                            }}
                             className="flex items-center gap-1 rounded bg-[var(--aluka-btn-bg)] px-2.5 py-0.5 text-[11px] font-medium text-white hover:bg-[var(--aluka-btn-hover)]"
                           >
                             <Download size={11} />

@@ -79,6 +79,54 @@ export function extensionId(m: ExtensionManifest): string {
   return `${m.publisher}.${m.name}`.toLowerCase();
 }
 
+/**
+ * JSONC 解析（VS Code 生态惯例：主题/片段/语言配置常带 // 注释与尾逗号）。
+ * 状态机逐字符扫描：字符串内原样保留（含转义），字符串外剥离 // 与正斜杠星号注释、
+ * 删对象/数组尾逗号。失败时抛出 SyntaxError（调用方决定降级策略）。
+ */
+export function parseJsonc(text: string): unknown {
+  let out = "";
+  let i = 0;
+  let inStr = false;
+  let quote = "";
+  while (i < text.length) {
+    const c = text[i] ?? "";
+    if (inStr) {
+      out += c;
+      if (c === "\\") {
+        out += text[i + 1] ?? "";
+        i += 2;
+        continue;
+      }
+      if (c === quote) inStr = false;
+      i++;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      inStr = true;
+      quote = c;
+      out += c;
+      i++;
+      continue;
+    }
+    if (c === "/" && text[i + 1] === "/") {
+      while (i < text.length && text[i] !== "\n") i++;
+      continue;
+    }
+    if (c === "/" && text[i + 1] === "*") {
+      i += 2;
+      while (i < text.length && !(text[i] === "*" && text[i + 1] === "/")) i++;
+      i += 2;
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  // 删尾逗号：} 或 ] 前的逗号（字符串已剥离，此处安全）
+  out = out.replace(/,\s*([}\]])/g, "$1");
+  return JSON.parse(out);
+}
+
 /** 主题 JSON（VS Code 形状）→ AlukaTheme；base 由主题 JSON 的 type 字段推断 */
 export function parseThemeJson(
   themeId: string,

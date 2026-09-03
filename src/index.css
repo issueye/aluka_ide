@@ -61,3 +61,81 @@ body {
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
+
+/* Markdown 预览排版（跟随 --aluka-* 主题变量，亮/暗主题自动适配） */
+.md-body {
+  color: var(--aluka-text);
+  font-size: 14px;
+  line-height: 1.7;
+  user-select: text;
+  word-wrap: break-word;
+}
+.md-body h1,
+.md-body h2 {
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--aluka-border);
+  font-weight: 600;
+}
+.md-body h1 { font-size: 26px; margin: 20px 0 12px; }
+.md-body h2 { font-size: 21px; margin: 18px 0 10px; }
+.md-body h3 { font-size: 17px; margin: 16px 0 8px; font-weight: 600; }
+.md-body h4,
+.md-body h5,
+.md-body h6 { font-size: 14px; margin: 14px 0 6px; font-weight: 600; }
+.md-body p { margin: 8px 0; }
+.md-body a.md-link,
+.md-body span.md-link { color: #3794ff; }
+.md-body a.md-link { cursor: pointer; text-decoration: none; }
+.md-body a.md-link:hover { text-decoration: underline; }
+.md-body code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--aluka-input-bg);
+  font-family: Consolas, "Cascadia Code", monospace;
+  font-size: 12.5px;
+}
+.md-body .md-codeblock { position: relative; margin: 10px 0; }
+.md-body .md-code-lang {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  font-size: 11px;
+  color: var(--aluka-text-dim);
+}
+.md-body pre {
+  margin: 0;
+  padding: 12px;
+  overflow-x: auto;
+  border: 1px solid var(--aluka-border);
+  border-radius: 6px;
+  background: var(--aluka-input-bg);
+}
+.md-body pre code { padding: 0; background: transparent; }
+.md-body blockquote {
+  margin: 10px 0;
+  padding: 2px 12px;
+  border-left: 3px solid var(--aluka-btn-bg);
+  color: var(--aluka-text-dim);
+}
+.md-body ul,
+.md-body ol { margin: 8px 0; padding-left: 24px; }
+.md-body li { margin: 3px 0; }
+.md-body li input[type="checkbox"] { margin-right: 6px; }
+.md-body table {
+  margin: 10px 0;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.md-body th,
+.md-body td {
+  padding: 6px 12px;
+  border: 1px solid var(--aluka-border);
+}
+.md-body th { background: var(--aluka-hover); font-weight: 600; }
+.md-body hr { margin: 16px 0; border: none; border-top: 1px solid var(--aluka-border); }
+.md-body .md-img { color: var(--aluka-text-dim); font-style: italic; }
+.md-body img.md-img-inline {
+  max-width: 100%;
+  border-radius: 4px;
+  margin: 6px 0;
+}

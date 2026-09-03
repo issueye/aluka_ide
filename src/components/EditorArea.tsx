@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect } from "react";
 import {
+  BookOpen,
   CodeXml,
   Columns2,
   File,
   FileText,
+  Pencil,
   Rows2,
   X,
   GitCompare,
@@ -14,6 +16,7 @@ import type { EditorGroup, EditorTab } from "../editorStore";
 import { useEditorStore } from "../editorStore";
 import CodeEditor from "./CodeEditor";
 import DiffEditor from "./DiffEditor";
+import MarkdownPreview from "./MarkdownPreview";
 
 const SHORTCUTS: [string, string][] = [
   ["Ctrl + Shift + P", "命令面板（M4）"],
@@ -238,7 +241,13 @@ function EditorGroupView({
   const splitGroup = useEditorStore((s) => s.splitGroup);
   const closeGroup = useEditorStore((s) => s.closeGroup);
   const setActiveGroup = useEditorStore((s) => s.setActiveGroup);
+  const togglePreview = useEditorStore((s) => s.togglePreview);
+  const isMarkdownPath = useEditorStore((s) => s.isMarkdownPath);
+  const inPreview = useEditorStore((s) =>
+    group.activePath ? s.previewPaths.has(group.activePath) : false,
+  );
   const isActiveGroup = activeGroupId === group.id;
+  const activeIsMarkdown = isMarkdownPath(group.activePath);
 
   return (
     <div
@@ -262,6 +271,20 @@ function EditorGroupView({
         </div>
         {/* 右侧组操作按钮 */}
         <div className="flex shrink-0 items-center gap-0.5 px-1.5 text-[var(--aluka-text-dim)]">
+          {activeIsMarkdown && group.activePath && (
+            <button
+              title={inPreview ? "返回编辑 (Ctrl+Shift+V)" : "打开预览 (Ctrl+Shift+V)"}
+              onClick={(e) => {
+                e.stopPropagation();
+                togglePreview(group.activePath as string);
+              }}
+              className={`flex h-6 w-6 items-center justify-center rounded hover:bg-[var(--aluka-hover)] hover:text-[var(--aluka-text-active)] ${
+                inPreview ? "bg-[var(--aluka-hover)] text-[var(--aluka-text-active)]" : ""
+              }`}
+            >
+              {inPreview ? <Pencil size={15} /> : <BookOpen size={15} />}
+            </button>
+          )}
           <button
             title="向右拆分编辑器 (Ctrl+\)"
             onClick={(e) => {
@@ -297,7 +320,7 @@ function EditorGroupView({
         </div>
       </div>
 
-      {/* 编辑器本体 / 差异对比 / 欢迎页 */}
+      {/* 编辑器本体 / Markdown 预览 / 差异对比 / 欢迎页 */}
       {group.activePath ? (
         group.tabs.find((t) => t.path === group.activePath)?.isDiff ? (
           <DiffEditor
@@ -305,6 +328,8 @@ function EditorGroupView({
             original={group.tabs.find((t) => t.path === group.activePath)?.diffOriginal ?? ""}
             modified={group.tabs.find((t) => t.path === group.activePath)?.diffModified ?? ""}
           />
+        ) : inPreview && activeIsMarkdown ? (
+          <MarkdownPreview path={group.activePath} />
         ) : (
           <CodeEditor groupId={group.id} activePath={group.activePath} />
         )

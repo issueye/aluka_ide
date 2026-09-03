@@ -40,6 +40,11 @@ export function registerCommands(cmds: AlukaCommand[]): void {
   for (const c of cmds) registerCommand(c);
 }
 
+/** 反注册命令（扩展卸载热清理用；快捷键 keymap 每次按键从 registry 派生，即删即生效） */
+export function unregisterCommands(ids: string[]): void {
+  for (const id of ids) registry.delete(id);
+}
+
 export function listCommands(): AlukaCommand[] {
   return [...registry.values()];
 }
@@ -469,6 +474,21 @@ export function registerCoreCommands(): void {
         if (s.groups.length > 1) {
           s.setSplitDirection(s.layoutDirection === "horizontal" ? "vertical" : "horizontal");
         }
+      },
+    },
+    {
+      id: "markdown.showPreview",
+      title: "打开 Markdown 预览",
+      category: "Markdown",
+      keybinding: "ctrl+shift+v",
+      run: () => {
+        const s = useEditorStore.getState();
+        const p = s.activePath;
+        if (!p || !s.isMarkdownPath(p)) {
+          showInfo("当前没有可预览的 Markdown 文件");
+          return;
+        }
+        if (!s.previewPaths.has(p)) s.togglePreview(p);
       },
     },
     {

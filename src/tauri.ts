@@ -265,10 +265,9 @@ export async function installVsix(vsixPath: string): Promise<InstallResult> {
   return invoke<InstallResult>("install_vsix", { vsixPath });
 }
 
-/** 从二进制字节流安装 VSIX（用于开源市场在线安装） */
-export async function installVsixBytes(bytes: number[] | Uint8Array): Promise<InstallResult> {
-  const data = bytes instanceof Uint8Array ? Array.from(bytes) : bytes;
-  return invoke<InstallResult>("install_vsix_bytes", { bytes: data });
+/** 从二进制字节流安装 VSIX（原始 IPC 载荷直传，避免 JSON 数组序列化膨胀） */
+export async function installVsixBytes(bytes: Uint8Array): Promise<InstallResult> {
+  return invoke<InstallResult>("install_vsix_bytes", bytes);
 }
 
 /** 扫描已安装扩展（全局 + 工作区 .aluka/extensions） */
@@ -279,6 +278,11 @@ export async function listExtensions(workspaceRoot: string | null): Promise<Inst
 /** 读取扩展目录内文件（主题 JSON / 片段 / main.js） */
 export async function readExtensionFile(dir: string, rel: string): Promise<string> {
   return invoke<string>("read_extension_file", { dir, rel });
+}
+
+/** 读取扩展目录内文件的原始字节（README 相对图片内联渲染用；二进制安全） */
+export async function readExtensionFileBytes(dir: string, rel: string): Promise<number[]> {
+  return invoke<number[]>("read_extension_file_bytes", { dir, rel });
 }
 
 /** 卸载全局扩展 */

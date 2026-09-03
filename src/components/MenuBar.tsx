@@ -71,6 +71,7 @@ const MENUS: { title: string; items: MenuEntry[] }[] = [
       { label: "重置编辑器字体", commandId: "view.zoomReset" },
       { label: "向右拆分编辑器", commandId: "workbench.action.splitEditorRight", separatorBefore: true },
       { label: "向下拆分编辑器", commandId: "workbench.action.splitEditorDown" },
+      { label: "打开 Markdown 预览", commandId: "markdown.showPreview" },
     ],
   },
   {

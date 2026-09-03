@@ -68,6 +68,19 @@ export function setDraft(path: string, value: string): void {
   fallbackDrafts.set(path, value);
 }
 
+/** 读取文件当前内容（Monaco model 优先，降级模式读草稿） */
+export function getContent(path: string): string {
+  return models.get(path)?.getValue() ?? fallbackDrafts.get(path) ?? "";
+}
+
+/** 订阅文件内容变更（Monaco model 事件；降级模式返回空卸载函数） */
+export function subscribeContent(path: string, cb: () => void): () => void {
+  const m = models.get(path);
+  if (!m) return () => {};
+  const d = m.onDidChangeContent(() => cb());
+  return () => d.dispose();
+}
+
 /** 标记脏状态（降级模式由 textarea onChange 调用） */
 export function markDirty(path: string, dirty: boolean): void {
   const s = useEditorStore.getState();
@@ -108,6 +121,8 @@ interface EditorStore {
   closePrompt: ClosePrompt | null;
   /** 兼容旧代码判断：待确认关闭的文件路径 */
   closePromptPath: string | null;
+  /** Markdown 预览态：已进入预览的标签路径集合 */
+  previewPaths: Set<string>;
 
   // 向后兼容当前活动组状态
   tabs: EditorTab[];
@@ -129,6 +144,10 @@ interface EditorStore {
   closeAllTabs: () => void;
   setError: (msg: string | null) => void;
   forceClose: (path: string, groupId?: string) => void;
+  /** Markdown 预览：切换指定 md 标签的预览态（非 md 文件忽略） */
+  togglePreview: (path: string) => void;
+  /** Markdown 预览：path 是否为 md 文件 */
+  isMarkdownPath: (path: string | null) => boolean;
 }
 
 const DEFAULT_GROUP: EditorGroup = {
@@ -146,6 +165,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   error: null,
   closePrompt: null,
   closePromptPath: null,
+  previewPaths: new Set(),
 
   tabs: [],
   activePath: null,
@@ -511,5 +531,22 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       });
     }
   },
+
+  togglePreview: (path) => {
+    if (!isMarkdownFile(path)) return;
+    const next = new Set(get().previewPaths);
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    set({ previewPaths: next });
+  },
+
+  isMarkdownPath: (path) => (path ? isMarkdownFile(path) : false),
 }));
+
+/** 是否为 Markdown 文件（按扩展名判定） */
+function isMarkdownFile(path: string): boolean {
+  const name = path.split(/[\\/]/).pop() ?? "";
+  const ext = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1).toLowerCase() : "";
+  return ext === "md" || ext === "markdown";
+}
 

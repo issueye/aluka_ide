@@ -166,9 +166,22 @@ pub async fn install_vsix(app: AppHandle, vsix_path: String) -> Result<InstallRe
     .map_err(|e| format!("安装任务失败: {e}"))?
 }
 
-/// 从二进制字节流安装 VSIX（用于开源插件市场在线下载安装）
+/// 从二进制字节流安装 VSIX。
+/// 传输走原始 IPC 载荷（JS 侧直接传 Uint8Array），避免 JSON 数字数组序列化
+/// 把几 MB 的包膨胀成几十 MB 的 IPC 消息；同时兼容 JSON 数组旧格式。
 #[tauri::command]
-pub async fn install_vsix_bytes(app: AppHandle, bytes: Vec<u8>) -> Result<InstallResult, String> {
+pub async fn install_vsix_bytes(
+    app: AppHandle,
+    request: tauri::ipc::Request<'_>,
+) -> Result<InstallResult, String> {
+    let bytes: Vec<u8> = match request.body() {
+        tauri::ipc::InvokeBody::Raw(raw) => raw.to_vec(),
+        tauri::ipc::InvokeBody::Json(value) => serde_json::from_value(value.clone())
+            .map_err(|e| format!("请求体不是有效字节数组: {e}"))?,
+    };
+    if bytes.is_empty() {
+        return Err("VSIX 内容为空".into());
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let cursor = std::io::Cursor::new(bytes);
         unpack_and_install(&app, cursor)
@@ -253,6 +266,21 @@ pub fn read_extension_file(dir: String, rel: String) -> Result<String, String> {
         return Err(format!("扩展文件不存在: {rel}"));
     }
     std::fs::read_to_string(&dest).map_err(|e| format!("读取扩展文件失败: {e}"))
+}
+
+/// 读取扩展目录内文件的原始字节（README 相对图片内联渲染用；二进制安全）。
+/// 路径逃逸防护与 read_extension_file 同规则。
+#[tauri::command]
+pub fn read_extension_file_bytes(dir: String, rel: String) -> Result<Vec<u8>, String> {
+    let root = Path::new(&dir);
+    if !root.is_dir() {
+        return Err(format!("扩展目录不存在: {dir}"));
+    }
+    let dest = safe_target(root, &rel)?;
+    if !dest.is_file() {
+        return Err(format!("扩展文件不存在: {rel}"));
+    }
+    std::fs::read(&dest).map_err(|e| format!("读取扩展文件失败: {e}"))
 }
 
 /// 卸载扩展（仅限全局目录；工作区扩展由用户自行管理文件）。

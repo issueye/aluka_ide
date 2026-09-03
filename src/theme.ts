@@ -196,6 +196,11 @@ export function registerTheme(theme: AlukaTheme): void {
   registeredThemes.set(theme.id, theme);
 }
 
+/** 运行时移除扩展主题（扩展卸载热清理用；若正在使用该主题，由调用方负责回退） */
+export function unregisterTheme(id: string): void {
+  registeredThemes.delete(id);
+}
+
 export function getTheme(id: string): AlukaTheme {
   return (
     registeredThemes.get(id) ??

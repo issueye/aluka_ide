@@ -16,8 +16,8 @@ use git::{
 use search::search_workspace;
 use terminal::{create_terminal, kill_terminal, reap_terminal, resize_terminal, write_terminal};
 use vsix::{
-    install_vsix, install_vsix_bytes, list_extensions, pick_vsix_dialog, read_extension_file,
-    uninstall_extension,
+    install_vsix, install_vsix_bytes, list_extensions, pick_vsix_dialog,
+    read_extension_file, read_extension_file_bytes, uninstall_extension,
 };
 
 use notify::{RecursiveMode, Watcher};
@@ -395,6 +395,7 @@ pub fn run() {
             list_extensions,
             pick_vsix_dialog,
             read_extension_file,
+            read_extension_file_bytes,
             uninstall_extension
         ])
         .run(tauri::generate_context!())
