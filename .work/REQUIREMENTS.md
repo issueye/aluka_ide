@@ -2,8 +2,8 @@
 
 | 项 | 内容 |
 | --- | --- |
-| 文档版本 | v0.1 |
-| 日期 | 2026-09-02 |
+| 文档版本 | v0.2 |
+| 日期 | 2026-09-03 |
 | 状态 | 基线（需求变更须更新本文档并记录变更日志） |
 | 关联文档 | [DEVELOPMENT_PLAN.md](./DEVELOPMENT_PLAN.md) · [TODO/](./TODO/) · [AGENTS.md](../AGENTS.md) |
 
@@ -35,7 +35,8 @@ VS Code 功能全面但资源占用高（安装包 90MB+、冷启动慢、内存
 | --- | --- | --- |
 | A. 日常改配置 / 脚本的开发者 | S1 打开项目，浏览文件树，编辑并保存 | FR-01~04 |
 | B. 排查问题的开发者 | S2 全局搜索关键字定位；S3 终端跑命令验证 | FR-05、FR-06 |
-| C. 追求个性化的用户 | S4 换配色主题、装小插件 | FR-09、FR-10 |
+| C. 追求个性化的用户 | S4 换配色主题、装小插件 | FR-09、FR-10、FR-16 |
+| D. 用 Git 管理代码的开发者 | S5 暂存/提交/切分支/看 Diff 后推送 | FR-11、FR-15 |
 
 ## 3. 功能需求（FR）
 
@@ -44,17 +45,22 @@ VS Code 功能全面但资源占用高（安装包 90MB+、冷启动慢、内存
 | FR-01 | 窗口框架 | 自定义标题栏（`decorations=false`）、最小化 / 最大化 / 关闭、拖拽移动、双击最大化 | P0 | 三键可用；拖拽顺滑；无系统白边 |
 | FR-02 | 布局 Shell | 活动栏 + 侧边栏 + 编辑器组 + 底部面板 + 状态栏；各区域可折叠/伸缩 | P0 | 布局对照 VS Code Dark+ 走查通过 |
 | FR-03 | 资源管理器 | 打开文件夹（系统对话框）；目录树懒加载；新建文件/文件夹、重命名、删除、刷新；文件变更监听自动刷新 | P0 | 万级文件目录首屏 ≤ 500ms；CRUD 后树即时反映 |
-| FR-04 | 编辑器 | Monaco 编辑器；多标签页；脏标记；保存(Ctrl+S)/另存为；常见 20+ 语言语法高亮；文件内查找替换；大文件保护 | P0 | 修改→保存落盘；>5MB 提示只读，>20MB 拒绝打开 |
+| FR-04 | 编辑器 | Monaco 编辑器；多标签页；脏标记；保存(Ctrl+S)/另存为；常见 20+ 语言语法高亮；文件内查找替换；大文件保护；**分屏多编辑器组**（向右/向下拆分、拖拽调节、可关闭组） | P0 | 修改→保存落盘；>5MB 提示只读，>20MB 拒绝打开；分屏后两组独立标签/视图态 |
 | FR-05 | 全局搜索 | 工作区文本搜索：大小写/整词/正则开关；结果按文件分组、点击跳转 | P1 | 1000 文件内搜索 < 2s；结果上限截断提示 |
-| FR-06 | 终端面板 | 多会话标签；默认 shell（cmd，后续 PowerShell）；流式输出；Ctrl+` 开关 | P1 | 可执行 `dir`、`git status` 等常规命令并实时回显 |
-| FR-07 | 命令面板 | Ctrl+Shift+P 命令、Ctrl+P 快速打开文件；子序列模糊匹配；最近使用置顶 | P0 | 所有核心命令可从面板触达 |
+| FR-06 | 终端面板 | ConPTY 原生伪控制台 + xterm 交互终端；多会话标签；默认 PowerShell（Windows）；ANSI 真彩/TUI/Tab 补全；动态 resize；Ctrl+` 开关 | P1 | 可执行常规命令并实时回显；vim 等 TUI 可交互；窗口缩放不乱版 |
+| FR-07 | 命令面板 | Ctrl+Shift+P 命令、Ctrl+P 快速打开文件、Ctrl+G 转到行；子序列模糊匹配；最近使用置顶 | P0 | 所有核心命令可从面板触达 |
 | FR-08 | 快捷键 | 核心集（保存/关闭标签/切换侧栏/面板/命令面板等）；允许扩展注册 | P0 | 核心集按键全部生效且不与输入冲突 |
 | FR-09 | 主题引擎 | 内置 Dark+ / Light+；加载 VS Code 主题 JSON（`colors`→UI CSS 变量、`tokenColors`→Monaco rules） | P1 | 任一纯配色 VS Code 主题插件加载后 UI+编辑器配色生效 |
 | FR-10 | 扩展系统 | 见 §5 兼容性分级（L1~L3 为本期） | P1 | 见 §5 各级验收 |
-| FR-11 | 状态栏 | 行:列、语言、编码、EOL、git 分支、通知气泡 | P1 | 打开文件后信息准确；git 仓库内显示分支 |
+| FR-11 | 状态栏 | 行:列、语言、编码、EOL、git 分支（点击切换/新建分支、ahead/behind 显示）、通知气泡 | P1 | 打开文件后信息准确；git 仓库内显示分支并可切换 |
 | FR-12 | 设置 | 主题、字号、自动保存等；持久化到 `~/.aluka-ide/settings.json` | P2 | 重启后设置保留 |
 | FR-13 | 欢迎页 | 未打开工作区 / 未打开文件的空状态引导（打开文件夹、快捷键提示） | P2 | — |
 | FR-14 | i18n | 中/英文案切换 | P2 | — |
+| FR-15 | 源代码管理（Git） | SCM 侧栏：暂存区/工作区两级列表、M/A/D/U/R 状态徽标、暂存/取消暂存/放弃更改、提交框（Ctrl+Enter，空暂存区时自动全量暂存再提交）；变更文件点击开启 Monaco Diff 双栏对比；活动栏未提交数徽标；Ctrl+Shift+G；非仓库工作区可一键 `git init`；push/pull（凭证走系统 git 配置） | P1 | 暂存→提交→状态清零闭环；Diff 双栏正确；分支切换生效 |
+| FR-16 | 插件市场（在线） | Open VSX 在线查询/热门推荐/一键下载，经 Rust 端安全解包安装（与本地 VSIX 同管线）；已安装/插件市场双 Tab、安装态识别、卸载；列表点击进入详情页（头部 + README 渲染：已安装读本地文件，市场经详情 API 在线拉取）；JSONC 解析兼容带注释的主题/片段文件；离线时核心编辑能力不受影响 | P2 | 在线可搜到并安装主题/命令扩展且即装即用；点击扩展可查看 README；离线仅市场 Tab 报错 |
+| FR-17 | 标题栏菜单栏 | 文件/编辑/选择/查看/转到/运行/终端/帮助八个下拉菜单，全部复用命令注册表；编辑/选择菜单以活动 Monaco 编辑器为执行目标 | P0 | 八菜单可用；未打开工作区时新建/运行给出引导提示 |
+| FR-18 | 运行活动文件 | 按扩展名映射运行命令（python/node/go run/cargo run/bash/powershell/cmd 等）：先保存脏文件，再开终端会话写入命令 | P2 | Python/Node 等主流文件一键运行并回显输出 |
+| FR-19 | Markdown 预览 | md 文件组内编辑/预览切换（`markdown.showPreview`，Ctrl+Shift+V；组右上预览按钮；查看菜单入口）；零依赖自研渲染（标题/代码块/引用/列表/表格/行内样式）；先转义后渲染、危险 scheme 降级、图片零外联；外链点击复制地址提示 | P2 | md 文件可切换预览；编辑键入实时刷新；XSS 向量转义 |
 
 ## 4. 非功能需求（NFR）
 
@@ -65,7 +71,7 @@ VS Code 功能全面但资源占用高（安装包 90MB+、冷启动慢、内存
 | NFR-03 | 安全 | VSIX 解包防 zip-slip（条目路径校验）；扩展仅能通过桥接 API 行动，无 Node/进程能力；无遥测、无外联 |
 | NFR-04 | 平台 | Windows 10+ 优先交付；macOS/Linux 保持代码层可移植（验证次序靠后） |
 | NFR-05 | 可维护 | 前端仅经 `src/tauri.ts` 单点调用后端命令；`npm run build`（含 tsc）与 `cargo clippy -D warnings` 零错误零警告 |
-| NFR-06 | 离线 | Monaco 等全部资源本地打包，不依赖 CDN；全功能离线可用 |
+| NFR-06 | 离线 | Monaco 等全部资源本地打包，不依赖 CDN；**核心编辑能力（打开/编辑/保存/搜索/终端/本地 VSIX 安装）全功能离线可用；在线市场 Tab 为在线增值能力，离线时仅该 Tab 报错重试** |
 
 ## 5. 扩展系统与 VS Code 兼容性策略（核心需求）
 
@@ -79,9 +85,9 @@ VS Code API 面积极大（数百个 API + Node.js 运行时），"完全兼容"
 | L4 | 自定义视图 | Webview 视图容器/视图（iframe 隔离承载扩展 UI） | 规划 |
 | L5 | 完整 API | 独立扩展宿主进程实现 `vscode.*` 大 API 面 + Node 能力（需捆绑 Node 运行时，与"轻量"冲突，单列为可选组件） | 远期 |
 
-**明确不承诺**：VS Marketplace 在线安装（v1 仅本地 `.vsix`）、调试器（DAP）、LSP、Remote 开发。
+**明确不承诺**：调试器（DAP）、LSP、Remote 开发。
 
-**安装方式**：本地 `.vsix`（zip 格式）→ Rust 端解包到 `~/.aluka-ide/extensions/<publisher>.<name>/` → 前端扫描清单并注册。
+**安装方式**：本地 `.vsix`（zip 格式）→ Rust 端解包到 `~/.aluka-ide/extensions/<publisher>.<name>/` → 前端扫描清单并注册；**在线市场（FR-16）下载的 VSIX 字节流经 `install_vsix_bytes` 走同一安全解包管线**。
 
 **目录约定**：全局扩展 `~/.aluka-ide/extensions/`；工作区级 `<workspace>/.aluka/extensions/`（优先级更高）。
 
@@ -92,10 +98,10 @@ VS Code API 面积极大（数百个 API + Node.js 运行时），"完全兼容"
 
 ## 6. 范围外（Non-goals）
 
-- VS Marketplace 在线市场、账号体系、同步
+- VS Marketplace 账号体系、同步
 - 调试器（DAP）、LSP 智能补全（Monaco 仅 Monarch 高亮）
 - Remote / 容器开发、 notebooks
-- Git 完整视图（仅状态栏分支展示，源代码管理面板属后续版本）
+- 转到定义/引用等语言导航（依赖语言服务，L4+ 范畴）
 
 ## 7. 技术选型与架构
 
@@ -105,25 +111,27 @@ VS Code API 面积极大（数百个 API + Node.js 运行时），"完全兼容"
 | 前端 | React 18 + TypeScript(strict) + Vite | 生态成熟；类型安全 |
 | 样式 | TailwindCSS 4（@tailwindcss/vite） | 原子化 + CSS 变量做主题 |
 | 编辑器 | Monaco Editor（本地打包，仅 editor worker） | VS Code 同源，主题/高亮兼容红利最大 |
+| 终端 | ConPTY 原生伪控制台（portable-pty）+ xterm.js 交互前端 | TUI/真彩/补全必需 |
 | 状态 | zustand | 轻量、无样板 |
 | 图标 | lucide-react | 轻量树摇 |
-| Rust crate | serde/serde_json、walkdir、notify 6、rfd、zip 2 | FS/监听/对话框/VSIX 解包 |
+| Rust crate | serde/serde_json、walkdir、notify 6、rfd、zip 2、portable-pty 0.8、trash、regex | FS/监听/对话框/VSIX 解包/伪终端/回收站/搜索 |
 
 ### 架构图
 
 ```
 ┌───────────────────────────────────────────────────────┐
 │              WebView 前端（React + Monaco）             │
-│  UI Shell：标题栏/活动栏/侧边栏/编辑器组/面板/状态栏      │
+│  UI Shell：标题栏菜单栏/活动栏/侧边栏/编辑器组/面板/状态栏 │
 │  命令面板 · 快捷键中枢 · 主题引擎 · 设置                 │
 │  扩展宿主 v0（清单解析 + 命令/主题注册 + JS 沙箱垫片）    │
+│  SCM 视图 + Diff 对比 · xterm 终端 · Open VSX 市场面板   │
 └───────────────▲───────────────────────▲───────────────┘
                 │  invoke（命令）         │  emit（事件：终端输出/文件变更）
 ┌───────────────┴───────────────────────┴───────────────┐
 │                   Rust Core（Tauri 2）                 │
 │  目录树/文件读写 · notify 监听 · walkdir 全局搜索        │
-│  终端会话（cmd 管道 + 读线程） · VSIX 解包(zip)          │
-│  文件夹对话框(rfd) · git 分支探测                        │
+│  ConPTY 终端会话（portable-pty + 读线程）· VSIX 解包(zip) │
+│  文件夹对话框(rfd) · git 全命令集（status/commit/分支等） │
 └───────────────────────────────────────────────────────┘
 ```
 
@@ -135,10 +143,12 @@ VS Code API 面积极大（数百个 API + Node.js 运行时），"完全兼容"
 | --- | --- | --- |
 | R1 | VS Code API 面巨大导致兼容泥潭 | 严格按 L1~L5 分级，本期只做 L1~L3 并明示不兼容清单 |
 | R2 | Monaco 体积拖累"轻量" | 仅打 editor worker；语言 worker 不引入；资源本地化 |
-| R3 | 管道终端无 TTY（无颜色/交互程序不可用） | MVP 接受；后续评估 ConPTY / portable-pty |
+| R3 | 管道终端无 TTY（无颜色/交互程序不可用） | 已解决：ConPTY（portable-pty）+ xterm，直连 PTY 输出 |
 | R4 | rfd 对话框阻塞命令线程 | `spawn_blocking` + 异步 invoke |
 | R5 | 大文件/二进制文件拖垮编辑器 | 读取前探测：>5MB 只读、>20MB 拒绝、含 NUL 判定二进制 |
 | R6 | WebView2 版本差异 | Vite 固定 `target: chrome105`；关键路径人工冒烟清单 |
+| R7 | 扩展沙箱弱（`new Function` 可触达全局对象） | 仅暴露 commands/window/workspace 只读 API 面；写路径不开放；完整 Worker/iframe 隔离属 L4+ |
+| R8 | Git 大仓库 `status -uall` 偏慢、push/pull 无凭证 UI | 后台线程执行不卡 UI；失败走通知提示；大仓库进度提示与凭证表单留后续版本 |
 
 ## 9. 验收与度量
 
@@ -150,3 +160,8 @@ VS Code API 面积极大（数百个 API + Node.js 运行时），"完全兼容"
 | 日期 | 版本 | 变更 |
 | --- | --- | --- |
 | 2026-09-02 | v0.1 | 初版基线 |
+| 2026-09-03 | v0.2 | 超基线转正：新增 FR-15（Git SCM）、FR-16（在线市场）、FR-17（菜单栏）、FR-18（运行活动文件）；FR-04 补分屏、FR-06 改 ConPTY 真终端、FR-11 补分支菜单；NFR-06 明确在线市场为在线增值能力；§6 范围外移除 Git 完整视图与在线市场；架构图/Rust 依赖表/风险 R7~R8 同步 |
+| 2026-09-03 | v0.2.1 | 新增 FR-19（Markdown 预览）：组内编辑/预览切换、零依赖安全渲染、外链复制提示 |
+| 2026-09-03 | v0.2.2 | 扩展体验补齐：T6 JSONC 解析修复（带注释主题/片段不再激活失败）；FR-16 补扩展详情页（列表点击看 README，已安装读本地/市场在线拉取） |
+| 2026-09-03 | v0.2.3 | 扩展沙箱"宽容兜底"升级（T9）：`require("vscode")`/CommonJS/`process` 垫片；互操作键快照通告（VS Code API 150+ / Node 内建 90+）；未实现 API 以可调用可构造的宽容对象兜底并计数提示；文档/输入/标签组类 API 提供真实最小桩。Mermaid 真实 bundle 全量激活（59 命令，35 API 降级） |
+| 2026-09-03 | v0.2.4 | 扩展优化批次（T10）：VSIX 在线安装改原始 IPC 载荷（Raw body 直传，防 JSON 数组膨胀）+ 下载进度百分比；市场更新检测（isNewerVersion）与一键升级按钮；卸载热清理（命令/主题/片段 provider 即时反注册）；片段触发去掉硬编码字符；本地 VSIX 安装即时激活；README 相对图片 base64 内联渲染（新命令 read_extension_file_bytes，零外联） |

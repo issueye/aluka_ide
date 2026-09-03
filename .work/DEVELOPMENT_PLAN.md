@@ -2,8 +2,8 @@
 
 | 项 | 内容 |
 | --- | --- |
-| 文档版本 | v0.1 |
-| 日期 | 2026-09-02 |
+| 文档版本 | v0.2 |
+| 日期 | 2026-09-03 |
 | 关联文档 | [REQUIREMENTS.md](./REQUIREMENTS.md) · [TODO/](./TODO/) · [AGENTS.md](../AGENTS.md) |
 
 ---
@@ -22,7 +22,7 @@
 | **MVP+** | MVP + M4 + M5 | 命令面板/快捷键/主题/设置 + 全局搜索/终端/状态栏，可作日常工具使用 |
 | **生态目标** | MVP+ + M6 | 可安装本地 VSIX：主题插件即装即用，命令类扩展可注册执行 |
 
-> **当前状态（2026-09-02）：M0~M7 全部完成，v0.1.0 发布**（NSIS 2.91MB / 冷启动 292ms / 空闲内存私有工作集 237.5MB）。
+> **当前状态（2026-09-03）：M0~M8 全部完成，v0.1.0 基线 + 超基线五项收口**（NSIS 2.91MB / 冷启动 292ms / 空闲内存私有工作集 237.5MB，NFR 全达标数据见 v0.1.0 实测）。
 
 ## 3. 里程碑总表
 
@@ -36,6 +36,7 @@
 | **M5 搜索/终端/状态栏** | 全局搜索、终端面板（cmd 管道）、状态栏信息 | 搜索命中可跳转；终端可执行常规命令 | 1 天 | 🔄 09-02 代码完成（质量门+搜索单测全绿），UI 走查待人工 → **MVP+ 检查点** |
 | **M6 扩展系统** | L1 清单/L2 主题/L3 命令 + VSIX 安装 + 示例扩展 | 安装主题 VSIX 生效；示例命令扩展注册执行成功 | 1.5 天 | ✅ 09-02（L1~L3 全部实测：主题 VSIX 双通道切换、命令扩展沙箱执行弹通知、卸载即时生效） |
 | **M7 打磨发布** | NSIS 安装包、性能达标验证、README、体验打磨 | v0.1.0 安装包 ≤25MB、冷启动 ≤2s | 1 天 | ✅ 09-02（NSIS 2.91MB、冷启动 292ms、空闲内存私有工作集 237.5MB，三项 NFR 全达标）→ **v0.1.0 发布** |
+| **M8 超基线收口** | 分屏多编辑器组、ConPTY 真终端、Git SCM + Diff、Open VSX 在线市场、标题栏菜单栏 | 五项全部实测通过（见 §4 M8 拆分） | 1 天 | ✅ 09-03 |
 
 ## 4. 里程碑详细拆分
 
@@ -82,6 +83,14 @@
 ### M7 打磨发布
 - `tauri build` NSIS 安装包；冷启动/内存实测记录；README（含扩展开发指南）；代码清理
 
+### M8 超基线收口（v0.1.0 之后落地，REQUIREMENTS v0.2 转正）
+- **分屏多编辑器组**（FR-04）：`editorStore` EditorGroup 模型，single/horizontal/vertical 布局、可拖拽 Splitter、组独立标签栏与视图态隔离、`Ctrl+\` 拆分与 `Ctrl+1/2` 焦点切换
+- **ConPTY 真终端**（FR-06）：`portable-pty 0.8` + `@xterm/xterm`，ANSI 真彩/TUI/Tab 补全、ResizeObserver 自适应、Dark+/Light+ 联动，默认 `powershell.exe -NoLogo`
+- **Git SCM + Diff**（FR-15/FR-11）：`git.rs` 12 命令、`SourceControlView` 两级列表与提交框、`DiffEditor` 双栏对比、状态栏分支菜单、活动栏徽标、`Ctrl+Shift+G`
+- **Open VSX 在线市场**（FR-16）：`marketplaceStore` 查询/热门/一键安装（`install_vsix_bytes` 同管线），`ExtensionsView` 双 Tab；在离线红线下定位为在线增值能力
+- **标题栏菜单栏 + 运行文件**（FR-17/FR-18）：八菜单复用命令注册表、`activeEditor` 执行目标、Monaco 5 contrib 补齐、按扩展名映射运行活动文件
+- 验收：五项走查记录见 `TODO_20260902` T24~T27（分屏/ConPTY/Git/菜单质量门与菜单走查）与扩展市场提交 `9cf63a5`
+
 ## 5. 排期建议（自 2026-09-02 起）
 
 | 日期 | 里程碑 | TODO 目录 |
@@ -118,3 +127,4 @@
 | 2026-09-02 | v0.1.7 | **M5 代码完成**（UI 走查待人工）：Rust search_workspace（大小写/整词/正则 + 截断，regex 依赖登记，4 例单测锁定归一化语义）+ terminal.rs（cmd /K chcp 65001 管道会话 + 读线程 emit，无 ConPTY 取舍见模块头注）+ get_git_branch（shell out，workspace:changed 去抖刷新）；前端 SearchView（分组/开关/点击 reveal 跳转）+ Panel 真实终端（多标签/流式输出/输入回显）+ autoSave=afterDelay 联动。质量门全绿。**走查补录**：Ctrl+` e.code 修复 + dir 回显 + 面板/输入行聚焦实测通过 |
 | 2026-09-02 | v0.1.8 | **M6 完成（L1~L3）**：Rust vsix.rs（install_vsix zip-slip 组件级防护 / list_extensions 全局+工作区 / read_extension_file / uninstall_extension / pick_vsix_dialog；zip 0.6 依赖登记）；前端 extHost（manifest 强类型收窄、registry 激活管线：声明占位→主题→片段→main.js 函数沙箱垫片 commands/window/workspace→keybindings）、notificationStore + toast、ExtensionsView（列表/安装/禁用/卸载）；示例扩展 ×2（monokai-theme、hello-command）+ 零依赖 make-vsix.mjs 打包脚本。修复：Monaco 主题名点号清洗、面板模糊过滤 null+1 失效。L2/L3 验收实测通过（主题双通道切换、沙箱命令弹通知、快捷键 contribute） |
 | 2026-09-02 | v0.1.9 | **M7 完成 → v0.1.0 发布**：`npm run tauri build` 产出 NSIS 安装包 2.91MB（红线 ≤25MB）+ MSI 4.05MB；release 冷启动 292ms（红线 ≤2s）；空闲内存私有工作集 237.5MB（红线 ≤300MB；WorkingSet 粗加总 355MB 作为共享页上界一并记录）；清理未使用依赖 @monaco-editor/react、补 .gitignore、新建 README（含扩展开发指南与不兼容清单）。质量门全绿。M0~M7 八个里程碑全部闭环 |
+| 2026-09-03 | v0.2 | **M8 超基线收口**：分屏多编辑器组（`6e15f18`）、ConPTY 真终端（`10388a4`）、Git SCM + Diff（`cd71343`，含 `fd21585` 控制台黑框修复）、Open VSX 在线市场（`9cf63a5`）、标题栏八菜单（`19f864b`）。REQUIREMENTS 同步升 v0.2：FR-15/16/17/18 转正，FR-04/06/11 补齐，NFR-06 明确在线市场为在线增值能力 |
