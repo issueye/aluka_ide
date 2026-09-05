@@ -12,6 +12,7 @@ import {
 import { useStatusStore } from "../statusStore";
 import { useSettingsStore } from "../settingsStore";
 import { setActiveEditor, clearActiveEditor } from "../activeEditor";
+import { gotoDefinitionForWord } from "../commands";
 import { monacoThemeName } from "../theme";
 
 /**
@@ -36,6 +37,7 @@ export default function CodeEditor({ groupId, activePath }: Props) {
   const prevPathRef = useRef<string | null>(null);
   const cursorHandlerRef = useRef<monaco.IDisposable | null>(null);
   const focusHandlerRef = useRef<monaco.IDisposable | null>(null);
+  const clickHandlerRef = useRef<monaco.IDisposable | null>(null);
   const [monacoFailed, setMonacoFailed] = useState(!useMonaco);
   // ref callback 只建一次（useCallback []），经此 ref 读取最新的同步闭包
   const syncRef = useRef<() => void>(() => {});
@@ -88,6 +90,8 @@ export default function CodeEditor({ groupId, activePath }: Props) {
       cursorHandlerRef.current = null;
       focusHandlerRef.current?.dispose();
       focusHandlerRef.current = null;
+      clickHandlerRef.current?.dispose();
+      clickHandlerRef.current = null;
       editorRef.current?.dispose();
       editorRef.current = null;
       prevPathRef.current = null;
@@ -131,6 +135,16 @@ export default function CodeEditor({ groupId, activePath }: Props) {
           eol: model && model.getEOL() === "\n" ? "LF" : "CRLF",
         });
       });
+      // Ctrl+点击 → 转到定义（FR-20）
+      clickHandlerRef.current = ed.onMouseDown((e) => {
+        if (!e.event.ctrlKey) return;
+        const pos = e.target.position;
+        const model = ed.getModel();
+        const word = model && pos ? model.getWordAtPosition(pos)?.word : undefined;
+        if (!word) return;
+        e.event.preventDefault();
+        void gotoDefinitionForWord(word);
+      });
       // 初始挂载时渲染期同步被跳过（editor 尚不存在），此处立即补一次
       syncRef.current();
     } catch (e) {
@@ -144,10 +158,10 @@ export default function CodeEditor({ groupId, activePath }: Props) {
     editorRef.current?.updateOptions({ fontSize });
   }, [fontSize]);
 
-  // 行定位联动（搜索结果点击 → openFile → 定位）：seq 驱动，model 就绪后执行
+  // 行/列定位联动（搜索结果点击 / 代码跳转 → openFile → 定位）：seq 驱动，model 就绪后执行
   const revealSeq = useRevealStore((s) => s.seq);
   useEffect(() => {
-    const { path, line } = useRevealStore.getState();
+    const { path, line, col } = useRevealStore.getState();
     if (revealSeq === 0 || !path || path !== activePath) return;
     const isCurrentActiveGroup = useEditorStore.getState().activeGroupId === groupId;
     if (!isCurrentActiveGroup) return;
@@ -155,9 +169,9 @@ export default function CodeEditor({ groupId, activePath }: Props) {
     if (!ed || !ed.getModel()) return;
     ed.setSelection({
       startLineNumber: line,
-      startColumn: 1,
+      startColumn: col,
       endLineNumber: line,
-      endColumn: 1,
+      endColumn: col,
     });
     ed.revealLineInCenter(line);
     ed.focus();

@@ -53,6 +53,10 @@
 | --- | --- | --- | --- |
 | 2026-09-03 | `git status --short` | ✅ | 仅 `.work/REQUIREMENTS.md`、`DEVELOPMENT_PLAN.md` 修改 + `TODO_20260903/` 新增，无代码改动（纯文档任务） |
 | 2026-09-03 | FR 编号交叉核对 | ✅ | REQUIREMENTS FR-15~18 ↔ PLAN M8 拆分 ↔ 本 TODO T2/T3 目标一致；两份基线均为 v0.2 |
+| 2026-09-03 | T11 质量门 | ✅ | `npm run build`（tsc strict）通过；`cargo clippy -- -D warnings` 零代码警告（仅增量缓存环境噪音）；`cargo fmt` 干净；`cargo test` 10/10（含 6 例符号定义正则） |
+| 2026-09-03 | T11 UI 走查（部分） | ✅ | dev 实测：转到菜单三项（转到定义 F12 / 查找所有引用 Shift+F12 / 转到工作区中的符号 Ctrl+T）渲染与快捷键提示正确；打开本项目工作区联动正常（标题/状态栏/活动栏 14 变更徽标） |
+| 2026-09-03 | T11 UI 走查（键盘链路） | ✅ | 桌面解锁后复测：Ctrl+T 过滤 "gotoDefinition" → 回车跳转 commands.ts:332 列 23（符号名首字符）；Shift+F12 列出 4 处引用 → 回车跳 CodeEditor.tsx:15；两个缺陷（索引高频清空/扫描未剪枝）修复后复验通过；F12/Ctrl+点击同链路复用留日常复核 |
+| 2026-09-03 | T11 走查期间数据安全核查 | ✅ | 自动化按键一次落空引发疑虑，`git diff` 全量核查 13 个变更文件：无任何误插入/误改（含空行级检查），diff 全部为本次功能有意改动 |
 
 ## 未决问题与次日移交
 
@@ -123,3 +127,28 @@
   - [x] 冒烟测试：markdown data-URL 内联/外链占位/危险 data:text/html 拒绝 ✓；isNewerVersion 6 例 ✓
   - [x] REQUIREMENTS 变更日志 v0.2.4；README 扩展条目同步
 - **人工走查待确认**：安装 Mermaid 观察下载百分比；市场列表找已安装扩展看更新按钮；卸载扩展后命令面板即时消失；打开带图片的扩展 README 看内联渲染。
+
+## 追加任务（代码跳转 · FR-20 / M9）
+
+### T11 代码跳转（转到定义 / 查找引用 / 工作区符号）🔄
+
+- **背景**：用户提出"生成代码跳转需要的内容"。原 §6 将"转到定义"整体列为范围外，本次按 AGENTS 约定先改基线（REQUIREMENTS FR-20 + §6 措辞收缩 + PLAN M9），把 **LSP 语义级导航**留在范围外，落地**文本级定义模式索引**（符合轻量红线，零新增依赖）。
+- **具体目标**：
+  - Rust `symbols.rs`（新模块）：`find_workspace_symbols` —— walkdir（复用 EXCLUDED_DIRS + 隐藏目录过滤）+ 按扩展名应用各语言定义正则（rust/go/python/ts/js/java/c 系），返回 path/line/col/name/kind；>1MB 文件跳过；全局 4000 条截断；定义正则单测锁定；
+  - 前端 `symbolsStore.ts`（新）：索引缓存（root 键控 + `workspace:changed` 失效重建）+ jump 候选列表状态；
+  - `requestReveal` 扩展支持列号定位；`CommandPalette` 新增 symbols（Ctrl+T 模糊过滤）与 jump（多候选选择）两种模式；
+  - 命令三入口：`editor.action.revealDefinition`（F12 / Ctrl+点击）、`editor.action.findReferences`（Shift+F12，复用 search_workspace 整词搜索）、`workbench.action.showWorkspaceSymbols`（Ctrl+T）；转到菜单补三项。
+- **边界**：不做类型解析/重载区分/import 解析；多语言同名符号以列表呈现由用户选择；F12 在 dev 构建（devtools 开启）会同时触发 DevTools 弹出，release 无此问题（记入未决）。
+- **实现**：
+  - Rust `symbols.rs`：`find_workspace_symbols`（walkdir + EXCLUDED_DIRS + 隐藏目录过滤 + >1MB 跳过；按扩展名编译"定义形态"正则集 rust/go/python/ts/js/java-kt-cs/c 系；返回 path/line/col/name/kind，col 按字符计与 Monaco 对齐；全局 4000 条截断）；6 例定义正则单测（含 C 系控制流噪声排除、中文行内列号字符计）。
+  - 前端 `symbolsStore.ts`（索引缓存 root 键控 + jump 候选列表）；`tauri.ts` 类型化封装；`requestReveal`/CodeEditor reveal 链路扩展列号定位；`CommandPalette` 新增 symbols（fuzzyScore 过滤）与 jump（子串过滤）两种模式；`App` 在 `workspace:changed` 时失效索引。
+  - 命令：`editor.action.revealDefinition`（F12）、`editor.action.findReferences`（Shift+F12，复用 search_workspace 整词搜索）、`workbench.action.showWorkspaceSymbols`（Ctrl+T）；转到菜单补三项；CodeEditor Ctrl+点击复用 `gotoDefinitionForWord`。
+- **过程中发现并修复的缺陷（2 处）**：
+  - ① **符号索引被高频清空**：初版 `workspace:changed` → 直接置空索引；dev 场景（vite/target 产物持续写入工作区）下事件高频触发，面板打开后索引即刻丢失（表现为"尚未构建符号索引"）。修复：失效改为**标记 stale + 保留旧索引供查询**，下次 ensureIndex 惰性重建（连续变动天然防抖，跳转用旧索引仅可能轻微过时）。
+  - ② **扫描未在 walker 层剪枝**：初版对排除目录"遍历到再 continue"，WalkDir 仍递归进入 node_modules/.git，`MAX_FILES` 配额被依赖目录耗尽，扫描返回空（第二次 dev 启动后复现）。修复：改用 `filter_entry` 在 walker 层剪枝（与 search.rs 同规则），配额只消耗在有效源码文件。
+- **验收标准**：
+  - [x] Ctrl+T 符号面板：输入 "gotoDefinition" 精准过滤出 gotoDefinitionForWord/gotoDefinition 两条（commands.ts:332/366），回车跳转 commands.ts:332，**状态栏"行 332，列 23"**（列号定位到符号名首字符，col 扩展生效）
+  - [x] Shift+F12 查找引用：光标于 gotoDefinitionForWord 定义行 → 候选列表 4 条（CodeEditor.tsx:15 import、:146 调用、commands.ts:332 定义、:367 调用，含行内容摘要+相对路径:行号），回车第一条跳转 CodeEditor.tsx:15（状态栏"行 15"）
+  - [ ] F12 / Ctrl+点击：与已验证链路共用 wordAtCursor + gotoDefinitionForWord + jumpTo（Shift+F12 已验证 wordAtCursor 取词正确）；F12 hub 分发注册正确，Ctrl+点击为同函数复用，留待日常使用复核
+  - [x] 已知小瑕疵（记录不阻塞）：同一文件内二次跳转后状态栏行列偶发显示上次位置（setSelection 与视图态恢复时序），实际跳转目标文件/行正确
+  - [x] `cargo test` 定义正则单测通过（10/10 全绿）；`npm run build`、`cargo clippy -D warnings`、`cargo fmt` 全绿

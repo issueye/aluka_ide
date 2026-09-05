@@ -117,6 +117,29 @@ export async function searchWorkspace(options: SearchOptions): Promise<SearchRes
   return invoke<SearchResponse>("search_workspace", { options });
 }
 
+/** 单条符号定义命中（FR-20 代码跳转） */
+export interface WorkspaceSymbol {
+  path: string;
+  line: number;
+  col: number;
+  name: string;
+  kind: string;
+}
+
+/**
+ * 工作区符号定义扫描（文本级定义模式索引，无 LSP）。
+ * query 为空时返回全量（受后端 4000 条上限截断）；否则按名称大小写不敏感子串过滤。
+ */
+export async function findWorkspaceSymbols(
+  root: string,
+  query = "",
+  limit = 4000,
+): Promise<WorkspaceSymbol[]> {
+  return invoke<WorkspaceSymbol[]>("find_workspace_symbols", {
+    query: { root, query, limit },
+  });
+}
+
 /** 创建终端会话，返回会话 id（输出经 terminal:output 事件流式回传） */
 export async function createTerminal(
   root: string,

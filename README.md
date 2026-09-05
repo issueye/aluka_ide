@@ -8,6 +8,7 @@
 
 - **工作区**：打开文件夹（系统对话框）、目录树懒加载、新建/重命名/删除（回收站）/刷新、文件变更自动刷新（notify 监听）
 - **编辑器**：Monaco（本地打包，零语言 worker，按需 Monarch 高亮 20+ 语言）、多标签、脏标记、关闭确认、大文件保护（>5MB 只读、>20MB 拒绝）、文件内查找、分屏多编辑器组
+- **代码跳转**：转到定义（F12 / Ctrl+点击）、查找所有引用（Shift+F12）、工作区符号（Ctrl+T）——文本级定义索引（rust/go/python/ts/js/java 系），文件变更自动失效重建
 - **Markdown 预览**：md 文件组内编辑/预览切换（Ctrl+Shift+V），零依赖安全渲染，外链点击复制地址
 - **搜索**：工作区全文搜索（大小写 / 整词 / 正则；结果按文件分组，点击跳转到行）
 - **终端**：cmd 管道会话（UTF-8）、多标签、流式输出、输入行回显
@@ -30,6 +31,7 @@
 | `Ctrl+Shift+G` | 源代码管理 |
 | `Ctrl+Shift+V` | Markdown 预览/编辑切换 |
 | `Ctrl+PageUp/PageDown` | 上一个 / 下一个标签 |
+| `F12` / `Shift+F12` / `Ctrl+T` | 转到定义 / 查找所有引用 / 工作区符号 |
 
 ## 快速开始
 
@@ -109,7 +111,7 @@ node scripts/make-vsix.mjs examples/extensions/hello-command aluka-hello-0.0.1.v
 | L4 | Webview 自定义视图 | 规划 |
 | L5 | 完整 vscode.* + Node 宿主 | 远期（与"轻量"目标冲突） |
 
-明确不承诺：VS Marketplace 在线安装（仅本地 VSIX）、调试器（DAP）、LSP 补全、Remote 开发、ConPTY 屏幕控制（终端为管道模式，无光标编辑）。
+明确不承诺：VS Marketplace 账号体系/同步、调试器（DAP）、LSP 语义级导航与补全（代码跳转为文本级定义索引，非语义分析）、Remote 开发、扩展 Webview 视图（L4 规划中）。
 
 ## 架构速览
 

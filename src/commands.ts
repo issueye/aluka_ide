@@ -1,11 +1,12 @@
 import { useAppStore } from "./store";
-import { useEditorStore } from "./editorStore";
+import { useEditorStore, requestReveal } from "./editorStore";
 import { useGitStore } from "./gitStore";
 import { useSettingsStore } from "./settingsStore";
 import { useTerminalStore, clearTerminalView } from "./terminalStore";
+import { useSymbolsStore, relativeDetail, type JumpItem } from "./symbolsStore";
 import { showInfo } from "./notificationStore";
 import { getActiveEditor } from "./activeEditor";
-import { openFolderDialog } from "./tauri";
+import { openFolderDialog, searchWorkspace } from "./tauri";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import pkg from "../package.json";
 
@@ -308,6 +309,123 @@ const RUN_TEMPLATES: Record<string, string> = {
 
 function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/* ---------------- 代码跳转辅助（FR-20 / M9） ---------------- */
+
+/** 打开文件并定位到行列（openFile 完成后 reveal，保证首次打开也能定位） */
+async function jumpTo(path: string, line: number, col: number): Promise<void> {
+  await useEditorStore.getState().openFile(path);
+  requestReveal(path, line, col);
+}
+
+/** 活动编辑器光标处的标识符；无编辑器/无词返回空串 */
+function wordAtCursor(): string {
+  const ed = getActiveEditor();
+  const pos = ed?.getPosition();
+  const model = ed?.getModel();
+  if (!ed || !model || !pos) return "";
+  return model.getWordAtPosition(pos)?.word ?? "";
+}
+
+/** 转到定义：索引命中 1 条直接跳，多条弹候选列表，0 条提示（Ctrl+点击亦复用） */
+export async function gotoDefinitionForWord(word: string): Promise<void> {
+  const root = useAppStore.getState().workspaceRoot;
+  if (!root) {
+    showInfo("请先打开文件夹");
+    return;
+  }
+  if (!word) {
+    showInfo("光标处没有符号");
+    return;
+  }
+  await useSymbolsStore.getState().ensureIndex(root);
+  const items = useSymbolsStore.getState().index?.get(word.toLowerCase()) ?? [];
+  if (items.length === 0) {
+    showInfo(`未找到 “${word}” 的定义`);
+    return;
+  }
+  if (items.length === 1) {
+    await jumpTo(items[0].path, items[0].line, items[0].col);
+    return;
+  }
+  useSymbolsStore.getState().openJumpList(
+    `“${word}” 的定义（${items.length} 处）`,
+    items.map((d) => ({
+      path: d.path,
+      line: d.line,
+      col: d.col,
+      label: `${d.name}　${d.kind}`,
+      detail: relativeDetail(d.path, root, d.line),
+    })),
+  );
+  useAppStore.getState().setPalette("jump");
+}
+
+/** 菜单/F12/Ctrl+点击共用的入口：从活动编辑器光标取词后跳定义 */
+async function gotoDefinition(): Promise<void> {
+  await gotoDefinitionForWord(wordAtCursor());
+}
+
+/** 查找所有引用：复用工作区搜索（整词、区分大小写），结果以候选列表呈现 */
+async function findReferences(): Promise<void> {
+  const root = useAppStore.getState().workspaceRoot;
+  const word = wordAtCursor();
+  if (!root) {
+    showInfo("请先打开文件夹");
+    return;
+  }
+  if (!word) {
+    showInfo("光标处没有符号");
+    return;
+  }
+  try {
+    const res = await searchWorkspace({
+      root,
+      query: word,
+      caseSensitive: true,
+      wholeWord: true,
+      regex: false,
+    });
+    const items: JumpItem[] = [];
+    for (const file of res.results) {
+      for (const m of file.matches) {
+        items.push({
+          path: file.path,
+          line: m.lineNumber,
+          col: 1,
+          label: m.lineText.trim().slice(0, 120),
+          detail: relativeDetail(file.path, root, m.lineNumber),
+        });
+      }
+    }
+    if (items.length === 0) {
+      showInfo(`未找到 “${word}” 的引用`);
+      return;
+    }
+    if (items.length === 1) {
+      await jumpTo(items[0].path, items[0].line, 1);
+      return;
+    }
+    useSymbolsStore.getState().openJumpList(
+      `“${word}” 的引用（${items.length}${res.truncated ? "+，已截断" : ""}）`,
+      items.slice(0, 200),
+    );
+    useAppStore.getState().setPalette("jump");
+  } catch (e) {
+    useEditorStore.getState().setError(String(e));
+  }
+}
+
+/** 工作区符号面板：确保索引就绪后打开 symbols 模式 */
+async function showWorkspaceSymbols(): Promise<void> {
+  const root = useAppStore.getState().workspaceRoot;
+  if (!root) {
+    showInfo("请先打开文件夹");
+    return;
+  }
+  await useSymbolsStore.getState().ensureIndex(root);
+  useAppStore.getState().setPalette("symbols");
 }
 
 /** 在终端中运行活动文件：先保存脏文件 → 确保终端会话 → 写入命令 */
@@ -779,6 +897,27 @@ export function registerCoreCommands(): void {
       category: "转到",
       displayKeybinding: "Ctrl+G",
       run: () => useAppStore.getState().setPalette("goto"),
+    },
+    {
+      id: "editor.action.revealDefinition",
+      title: "转到定义",
+      category: "转到",
+      keybinding: "f12",
+      run: () => void gotoDefinition(),
+    },
+    {
+      id: "editor.action.findReferences",
+      title: "查找所有引用",
+      category: "转到",
+      keybinding: "shift+f12",
+      run: () => void findReferences(),
+    },
+    {
+      id: "workbench.action.showWorkspaceSymbols",
+      title: "转到工作区中的符号…",
+      category: "转到",
+      keybinding: "ctrl+t",
+      run: () => void showWorkspaceSymbols(),
     },
 
     /* ---------------- 运行菜单 ---------------- */

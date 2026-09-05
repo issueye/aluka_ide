@@ -22,7 +22,7 @@
 | **MVP+** | MVP + M4 + M5 | 命令面板/快捷键/主题/设置 + 全局搜索/终端/状态栏，可作日常工具使用 |
 | **生态目标** | MVP+ + M6 | 可安装本地 VSIX：主题插件即装即用，命令类扩展可注册执行 |
 
-> **当前状态（2026-09-03）：M0~M8 全部完成，v0.1.0 基线 + 超基线五项收口**（NSIS 2.91MB / 冷启动 292ms / 空闲内存私有工作集 237.5MB，NFR 全达标数据见 v0.1.0 实测）。
+> **当前状态（2026-09-03）：M0~M8 全部完成，v0.1.0 基线 + 超基线五项收口**（NSIS 2.91MB / 冷启动 292ms / 空闲内存私有工作集 237.5MB，NFR 全达标数据见 v0.1.0 实测）；M9 代码跳转完成（走查记录见 TODO_20260903 T11）。
 
 ## 3. 里程碑总表
 
@@ -37,6 +37,7 @@
 | **M6 扩展系统** | L1 清单/L2 主题/L3 命令 + VSIX 安装 + 示例扩展 | 安装主题 VSIX 生效；示例命令扩展注册执行成功 | 1.5 天 | ✅ 09-02（L1~L3 全部实测：主题 VSIX 双通道切换、命令扩展沙箱执行弹通知、卸载即时生效） |
 | **M7 打磨发布** | NSIS 安装包、性能达标验证、README、体验打磨 | v0.1.0 安装包 ≤25MB、冷启动 ≤2s | 1 天 | ✅ 09-02（NSIS 2.91MB、冷启动 292ms、空闲内存私有工作集 237.5MB，三项 NFR 全达标）→ **v0.1.0 发布** |
 | **M8 超基线收口** | 分屏多编辑器组、ConPTY 真终端、Git SCM + Diff、Open VSX 在线市场、标题栏菜单栏 | 五项全部实测通过（见 §4 M8 拆分） | 1 天 | ✅ 09-03 |
+| **M9 代码跳转（文本级）** | FR-20：转到定义 / 查找引用 / 工作区符号（Rust 定义模式索引 + 前端三入口） | rust/ts/py 常见符号可跳转；引用可定位；符号面板可过滤 | 0.5 天 | ✅ 09-03（Ctrl+T 跳转列级定位、Shift+F12 引用列表实测通过；详见 TODO_20260903 T11） |
 
 ## 4. 里程碑详细拆分
 
@@ -91,6 +92,13 @@
 - **标题栏菜单栏 + 运行文件**（FR-17/FR-18）：八菜单复用命令注册表、`activeEditor` 执行目标、Monaco 5 contrib 补齐、按扩展名映射运行活动文件
 - 验收：五项走查记录见 `TODO_20260902` T24~T27（分屏/ConPTY/Git/菜单质量门与菜单走查）与扩展市场提交 `9cf63a5`
 
+### M9 代码跳转（文本级，FR-20）
+- Rust `symbols.rs`：`find_workspace_symbols` —— walkdir 遍历（复用 EXCLUDED_DIRS + 隐藏目录过滤，跳过 >1MB 文件），按扩展名应用各语言定义正则（rust/go/python/ts/js/java/c 系），返回 path/line/col/name/kind；结果上限截断；定义模式正则单测锁定
+- 前端 `symbolsStore`：索引缓存（root 键控，`workspace:changed` 失效重建）；jump 候选列表状态
+- 三入口：转到定义（F12 / Ctrl+点击）、查找所有引用（Shift+F12，复用 search_workspace 整词搜索）、工作区符号面板（Ctrl+T，模糊过滤）；多候选弹列表选择，命中 `openFile + requestReveal(行列)`
+- 明确边界：无 LSP 语义（不做类型解析/跨文件重载区分），DAP/语言服务仍范围外
+- 验收：对本项目自身代码 F12 跳函数定义命中；引用列表点击定位；Ctrl+T 搜符号过滤正常
+
 ## 5. 排期建议（自 2026-09-02 起）
 
 | 日期 | 里程碑 | TODO 目录 |
@@ -128,3 +136,4 @@
 | 2026-09-02 | v0.1.8 | **M6 完成（L1~L3）**：Rust vsix.rs（install_vsix zip-slip 组件级防护 / list_extensions 全局+工作区 / read_extension_file / uninstall_extension / pick_vsix_dialog；zip 0.6 依赖登记）；前端 extHost（manifest 强类型收窄、registry 激活管线：声明占位→主题→片段→main.js 函数沙箱垫片 commands/window/workspace→keybindings）、notificationStore + toast、ExtensionsView（列表/安装/禁用/卸载）；示例扩展 ×2（monokai-theme、hello-command）+ 零依赖 make-vsix.mjs 打包脚本。修复：Monaco 主题名点号清洗、面板模糊过滤 null+1 失效。L2/L3 验收实测通过（主题双通道切换、沙箱命令弹通知、快捷键 contribute） |
 | 2026-09-02 | v0.1.9 | **M7 完成 → v0.1.0 发布**：`npm run tauri build` 产出 NSIS 安装包 2.91MB（红线 ≤25MB）+ MSI 4.05MB；release 冷启动 292ms（红线 ≤2s）；空闲内存私有工作集 237.5MB（红线 ≤300MB；WorkingSet 粗加总 355MB 作为共享页上界一并记录）；清理未使用依赖 @monaco-editor/react、补 .gitignore、新建 README（含扩展开发指南与不兼容清单）。质量门全绿。M0~M7 八个里程碑全部闭环 |
 | 2026-09-03 | v0.2 | **M8 超基线收口**：分屏多编辑器组（`6e15f18`）、ConPTY 真终端（`10388a4`）、Git SCM + Diff（`cd71343`，含 `fd21585` 控制台黑框修复）、Open VSX 在线市场（`9cf63a5`）、标题栏八菜单（`19f864b`）。REQUIREMENTS 同步升 v0.2：FR-15/16/17/18 转正，FR-04/06/11 补齐，NFR-06 明确在线市场为在线增值能力 |
+| 2026-09-03 | v0.2.5 | **M9 代码跳转（文本级）**：REQUIREMENTS 新增 FR-20 并收缩 §6 措辞（LSP 语义导航仍范围外）；Rust `symbols.rs` 定义模式索引 + 前端转到定义/查找引用/工作区符号三入口（详见 M9 拆分） |

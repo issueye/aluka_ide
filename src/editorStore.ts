@@ -5,17 +5,18 @@ import { readFile, writeFile, saveAll } from "./tauri";
 /** 拒绝打开阈值（与 Rust 端 READ_MAX_BYTES 对齐，双保险） */
 const MAX_BYTES = 20 * 1024 * 1024;
 
-/** 行跳转信号（搜索结果点击 → 打开/定位）：seq 变化驱动 CodeEditor 副作用 */
+/** 行跳转信号（搜索结果点击/代码跳转 → 打开/定位）：seq 变化驱动 CodeEditor 副作用 */
 interface RevealState {
   seq: number;
   path: string | null;
   line: number;
+  col: number;
 }
-export const useRevealStore = create<RevealState>(() => ({ seq: 0, path: null, line: 0 }));
+export const useRevealStore = create<RevealState>(() => ({ seq: 0, path: null, line: 0, col: 1 }));
 
-/** 请求把某文件定位到某行（文件需已 openFile；由 CodeEditor 消费） */
-export function requestReveal(path: string, line: number): void {
-  useRevealStore.setState((s) => ({ seq: s.seq + 1, path, line }));
+/** 请求把某文件定位到某行某列（文件需已 openFile；由 CodeEditor 消费） */
+export function requestReveal(path: string, line: number, col = 1): void {
+  useRevealStore.setState((s) => ({ seq: s.seq + 1, path, line, col }));
 }
 
 export interface EditorTab {

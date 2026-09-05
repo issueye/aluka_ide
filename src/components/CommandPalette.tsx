@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppStore } from "../store";
 import { useEditorStore, requestReveal } from "../editorStore";
 import { listWorkspaceFiles } from "../tauri";
+import { useSymbolsStore, type JumpItem } from "../symbolsStore";
 import {
   fuzzyScore,
   getRecentCommands,
@@ -11,10 +12,13 @@ import {
 } from "../commands";
 
 /**
- * 全局浮层面板：命令面板（Ctrl+Shift+P）/ 快速打开（Ctrl+P）/ 转到行（菜单）共用一套 UI。
+ * 全局浮层面板：命令面板（Ctrl+Shift+P）/ 快速打开（Ctrl+P）/ 转到行 / 工作区符号（Ctrl+T）/
+ * 跳转候选列表（转到定义、查找引用的多候选）共用一套 UI。
  * 命令模式：模糊匹配 title/category/id，最近使用命令置顶。
  * 文件模式：加载工作区文件清单，模糊匹配相对路径，回车打开。
  * 转到行模式：解析行号（可带列号），回车定位活动文件。
+ * 符号模式：对工作区定义索引做模糊过滤，回车跳转。
+ * jump 模式：静态候选列表（定义/引用），回车打开并定位。
  */
 interface Row {
   key: string;
@@ -58,6 +62,60 @@ export default function CommandPalette() {
   }, [palette, workspaceRoot]);
 
   const rows = useMemo<Row[]>(() => {
+    if (palette === "jump") {
+      // 跳转候选列表（转到定义/查找引用多候选）：静态列表 + 子串过滤
+      const items: JumpItem[] = useSymbolsStore.getState().jump?.items ?? [];
+      const q = query.trim().toLowerCase();
+      return items
+        .filter((it) => !q || it.label.toLowerCase().includes(q) || (it.detail ?? "").toLowerCase().includes(q))
+        .slice(0, 100)
+        .map((it) => ({
+          key: `${it.path}:${it.line}:${it.col}:${it.label}`,
+          main: it.label,
+          hint: it.detail,
+          run: () => {
+            setPalette(null);
+            useSymbolsStore.getState().closeJumpList();
+            void useEditorStore.getState().openFile(it.path).then(() => {
+              requestReveal(it.path, it.line, it.col);
+            });
+          },
+        }));
+    }
+    if (palette === "symbols") {
+      // 工作区符号：对定义索引按名称模糊过滤，同名取首个定义
+      const index = useSymbolsStore.getState().index;
+      if (!index) return [];
+      const q = query.trim();
+      const flat = [...index.entries()].map(([key, defs]) => ({
+        key,
+        name: defs[0]?.name ?? key,
+        kind: defs[0]?.kind ?? "",
+        def: defs[0],
+      }));
+      const scored = flat
+        .map((s) => {
+          if (!s.def) return { ...s, score: q ? -1 : 0 };
+          return { ...s, score: q ? (fuzzyScore(q, s.name) ?? -1) : 0 };
+        })
+        .filter((s) => s.def && s.score >= 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 100);
+      const root = useAppStore.getState().workspaceRoot ?? "";
+      return scored.map((s) => ({
+        key: `sym:${s.key}`,
+        main: `${s.name}　${s.kind}`,
+        hint: s.def ? `${s.def.path.slice(root.length).replace(/^[\\/]/, "")}:${s.def.line}` : undefined,
+        run: () => {
+          setPalette(null);
+          if (!s.def) return;
+          void useEditorStore
+            .getState()
+            .openFile(s.def.path)
+            .then(() => requestReveal(s.def!.path, s.def!.line, s.def!.col));
+        },
+      }));
+    }
     if (palette === "goto") {
       // 转到行：解析「行号」或「行:列」；列号仅展示（定位以行为单位）
       const m = query.trim().match(/^(\d+)(?:\s*[:：,]\s*(\d+))?$/);
@@ -148,11 +206,17 @@ export default function CommandPalette() {
     setActive((a) => Math.min(a, Math.max(0, rows.length - 1)));
   }, [rows.length]);
 
+  /** 关闭面板；jump 模式同时清理候选列表状态 */
+  const close = () => {
+    setPalette(null);
+    if (palette === "jump") useSymbolsStore.getState().closeJumpList();
+  };
+
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
-      setPalette(null);
+      close();
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
       setActive((a) => (a + 1) % Math.max(1, rows.length));
@@ -172,7 +236,11 @@ export default function CommandPalette() {
       ? "输入以按文件名快速打开…"
       : palette === "goto"
         ? "输入行号（如 42 或 42:8），回车定位…"
-        : "> 输入命令…";
+        : palette === "symbols"
+          ? "输入符号名过滤（函数/类型/常量…）…"
+          : palette === "jump"
+            ? "输入以过滤候选…"
+            : "> 输入命令…";
   const emptyHint =
     palette === "files" && !workspaceRoot
       ? "尚未打开工作区"
@@ -180,14 +248,16 @@ export default function CommandPalette() {
         ? "没有活动的编辑器文件"
         : palette === "goto"
           ? "请输入有效行号"
-          : "无匹配项";
+          : palette === "symbols" && !useSymbolsStore.getState().index
+            ? "尚未构建符号索引（请先打开文件夹）"
+            : "无匹配项";
 
   return (
     <div
       className="fixed inset-0 z-40 flex justify-center bg-black/30"
       onMouseDown={(e) => {
         // 点击遮罩关闭（输入框/列表内不触发）
-        if (e.target === e.currentTarget) setPalette(null);
+        if (e.target === e.currentTarget) close();
       }}
     >
       <div

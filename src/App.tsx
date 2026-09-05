@@ -15,6 +15,7 @@ import { setupTerminalListeners } from "./terminalStore";
 import { useEditorStore } from "./editorStore";
 import { loadExtensions } from "./extHost/registry";
 import { scheduleTreeRefresh } from "./treeStore";
+import { useSymbolsStore } from "./symbolsStore";
 
 export default function App() {
   const sidebarVisible = useAppStore((s) => s.sidebarVisible);
@@ -51,9 +52,11 @@ export default function App() {
     let cancelled = false;
     void (async () => {
       try {
-        const fn = await listen<string[]>("workspace:changed", () =>
-          scheduleTreeRefresh(),
-        );
+        const fn = await listen<string[]>("workspace:changed", () => {
+          scheduleTreeRefresh();
+          // 代码跳转的定义索引随文件变更失效，下次使用时重建（FR-20）
+          useSymbolsStore.getState().invalidate();
+        });
         if (cancelled) fn();
         else unlisten = fn;
       } catch {

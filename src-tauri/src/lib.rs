@@ -5,6 +5,7 @@
 
 pub mod git;
 pub mod search;
+pub mod symbols;
 pub mod terminal;
 pub mod vsix;
 
@@ -14,10 +15,11 @@ use git::{
     git_list_branches, git_pull, git_push, git_stage, git_status, git_unstage,
 };
 use search::search_workspace;
+use symbols::find_workspace_symbols;
 use terminal::{create_terminal, kill_terminal, reap_terminal, resize_terminal, write_terminal};
 use vsix::{
-    install_vsix, install_vsix_bytes, list_extensions, pick_vsix_dialog,
-    read_extension_file, read_extension_file_bytes, uninstall_extension,
+    install_vsix, install_vsix_bytes, list_extensions, pick_vsix_dialog, read_extension_file,
+    read_extension_file_bytes, uninstall_extension,
 };
 
 use notify::{RecursiveMode, Watcher};
@@ -372,6 +374,7 @@ pub fn run() {
             set_settings,
             list_workspace_files,
             search_workspace,
+            find_workspace_symbols,
             create_terminal,
             write_terminal,
             resize_terminal,
