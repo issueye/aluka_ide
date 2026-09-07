@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { CaseSensitive, Regex, WholeWord } from "lucide-react";
 import { useAppStore } from "../store";
-import { useEditorStore, requestReveal } from "../editorStore";
 import { searchWorkspace, type SearchResponse } from "../tauri";
+import { jumpTo } from "../navigation";
 
 /**
  * 全局搜索视图（M5 / FR-05）：大小写/整词/正则开关；
@@ -37,7 +37,6 @@ function ToggleIcon({
 
 export default function SearchView() {
   const workspaceRoot = useAppStore((s) => s.workspaceRoot);
-  const openFile = useEditorStore((s) => s.openFile);
   const [query, setQuery] = useState("");
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [wholeWord, setWholeWord] = useState(false);
@@ -67,8 +66,9 @@ export default function SearchView() {
     }
   };
 
-  const jumpTo = (path: string, line: number) => {
-    void openFile(path).then(() => requestReveal(path, line));
+  const jumpToResult = (path: string, line: number) => {
+    // 经 navigation 跳转：记录当前位置入跳转历史（Alt+← 可返回）
+    void jumpTo(path, line, 1);
   };
 
   return (
@@ -136,7 +136,7 @@ export default function SearchView() {
               {f.matches.map((m) => (
                 <button
                   key={`${f.path}:${m.lineNumber}`}
-                  onClick={() => jumpTo(f.path, m.lineNumber)}
+                  onClick={() => jumpToResult(f.path, m.lineNumber)}
                   className="flex w-full items-baseline gap-2 rounded px-1 py-0.5 pl-4 text-left text-[12px] text-[var(--aluka-text-dim)] hover:bg-[var(--aluka-hover)] hover:text-[var(--aluka-text)]"
                 >
                   <span className="w-8 shrink-0 text-right tabular-nums">{m.lineNumber}</span>

@@ -79,7 +79,10 @@ const MENUS: { title: string; items: MenuEntry[] }[] = [
     items: [
       { label: "转到文件…", commandId: "workbench.action.quickOpen" },
       { label: "转到行/列…", commandId: "workbench.action.gotoLine" },
+      { label: "后退（跳转历史）", commandId: "workbench.action.navigateBack", separatorBefore: true },
+      { label: "前进（跳转历史）", commandId: "workbench.action.navigateForward" },
       { label: "转到定义", commandId: "editor.action.revealDefinition", separatorBefore: true },
+      { label: "查看定义（Peek）", commandId: "editor.action.peekDefinition" },
       { label: "查找所有引用", commandId: "editor.action.findReferences" },
       { label: "转到工作区中的符号…", commandId: "workbench.action.showWorkspaceSymbols" },
       { label: "聚焦到第一编辑器组", commandId: "workbench.action.focusFirstEditorGroup", separatorBefore: true },

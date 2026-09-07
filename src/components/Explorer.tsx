@@ -315,6 +315,10 @@ export default function Explorer() {
                 toggleDir(n);
                 if (!n.isDir) void useEditorStore.getState().openFile(n.path);
               }}
+              onDoubleClick={() => {
+                // 双击以常驻方式打开（预览标签转常驻）
+                if (!n.isDir) void useEditorStore.getState().openFile(n.path, undefined, { preview: false });
+              }}
               onContextMenu={(e) => {
                 e.preventDefault();
                 setSelected(n.path);

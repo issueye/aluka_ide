@@ -3,8 +3,8 @@ import { watchWorkspace } from "./tauri";
 import { useTreeStore } from "./treeStore";
 
 export type SidebarView = "explorer" | "search" | "scm" | "extensions";
-/** 浮层面板类型：命令 / 快速打开文件 / 转到行 / 工作区符号 / 跳转候选列表 */
-export type PaletteKind = "commands" | "files" | "goto" | "symbols" | "jump";
+/** 浮层面板类型：命令 / 快速打开文件 / 转到行 / 工作区符号 */
+export type PaletteKind = "commands" | "files" | "goto" | "symbols";
 
 /** 菜单 → 资源管理器的新建请求（seq 变化驱动 Explorer 弹出内联输入框） */
 export interface ExplorerRequest {

@@ -61,7 +61,7 @@ VS Code 功能全面但资源占用高（安装包 90MB+、冷启动慢、内存
 | FR-17 | 标题栏菜单栏 | 文件/编辑/选择/查看/转到/运行/终端/帮助八个下拉菜单，全部复用命令注册表；编辑/选择菜单以活动 Monaco 编辑器为执行目标 | P0 | 八菜单可用；未打开工作区时新建/运行给出引导提示 |
 | FR-18 | 运行活动文件 | 按扩展名映射运行命令（python/node/go run/cargo run/bash/powershell/cmd 等）：先保存脏文件，再开终端会话写入命令 | P2 | Python/Node 等主流文件一键运行并回显输出 |
 | FR-19 | Markdown 预览 | md 文件组内编辑/预览切换（`markdown.showPreview`，Ctrl+Shift+V；组右上预览按钮；查看菜单入口）；零依赖自研渲染（标题/代码块/引用/列表/表格/行内样式）；先转义后渲染、危险 scheme 降级、图片零外联；外链点击复制地址提示 | P2 | md 文件可切换预览；编辑键入实时刷新；XSS 向量转义 |
-| FR-20 | 代码跳转（文本级） | 转到定义（F12 / Ctrl+点击 / 转到菜单）；查找所有引用（Shift+F12）；工作区符号搜索（Ctrl+T）；实现为无 LSP 的定义模式索引：Rust 端按扩展名应用各语言定义正则（rust/go/python/ts/js/java/c 系）扫描工作区，`workspace:changed` 时失效重建；多候选弹出列表选择，命中打开并定位行列；LSP 级语义导航仍属范围外 | P1 | 对常见语言（rust/ts/py/go）的函数/类型符号可跳转定义；引用列表点击可定位；符号面板模糊过滤 |
+| FR-20 | 代码跳转（文本级） | 转到定义（F12 / Ctrl+点击 / 转到菜单，单命中直跳）；查找所有引用（Shift+F12）；查看定义 Peek（Alt+F12，单命中也浮层）；工作区符号搜索（Ctrl+T）；实现为无 LSP 的定义模式索引：Rust 端按扩展名应用各语言定义正则（rust/go/python/ts/js/java/c 系）扫描工作区，`workspace:changed` 时失效重建；多定义/引用在**编辑器内 Peek 浮层**呈现（锚定光标行、按文件分组、代码上下文预览、键盘选择），命中打开并定位行列；跳转历史**后退/前进**（Alt+←/→）；光标处符号同词高亮（wordHighlighter）；LSP 级语义导航仍属范围外 | P1 | 对常见语言（rust/ts/py/go）的函数/类型符号可跳转定义；多定义 Peek 可选可跳；引用列表点击可定位；Alt+←/→ 可在跳转历史间移动；符号面板模糊过滤 |
 
 ## 4. 非功能需求（NFR）
 
@@ -167,3 +167,4 @@ VS Code API 面积极大（数百个 API + Node.js 运行时），"完全兼容"
 | 2026-09-03 | v0.2.3 | 扩展沙箱"宽容兜底"升级（T9）：`require("vscode")`/CommonJS/`process` 垫片；互操作键快照通告（VS Code API 150+ / Node 内建 90+）；未实现 API 以可调用可构造的宽容对象兜底并计数提示；文档/输入/标签组类 API 提供真实最小桩。Mermaid 真实 bundle 全量激活（59 命令，35 API 降级） |
 | 2026-09-03 | v0.2.4 | 扩展优化批次（T10）：VSIX 在线安装改原始 IPC 载荷（Raw body 直传，防 JSON 数组膨胀）+ 下载进度百分比；市场更新检测（isNewerVersion）与一键升级按钮；卸载热清理（命令/主题/片段 provider 即时反注册）；片段触发去掉硬编码字符；本地 VSIX 安装即时激活；README 相对图片 base64 内联渲染（新命令 read_extension_file_bytes，零外联） |
 | 2026-09-03 | v0.2.5 | 新增 FR-20 代码跳转（文本级）：Rust `find_workspace_symbols` 定义模式索引（按扩展名应用各语言定义正则，跳过重目录/隐藏目录/大文件，结果上限截断）；前端转到定义（F12 / Ctrl+点击）/查找所有引用（Shift+F12）/工作区符号面板（Ctrl+T）；多候选列表选择、命中定位行列；`workspace:changed` 失效重建。§6 范围外措辞同步（LSP 语义级导航仍范围外） |
+| 2026-09-07 | v0.2.6 | FR-20 跳转重构（参考 VS Code 导航设计）+ 预览标签页：多定义/引用改编辑器内 Peek 浮层（跳转逻辑拆出 navigation.ts/navigationStore.ts/PeekView.tsx，jump 面板模式移除）；新增后退/前进（Alt+←/→）跳转历史栈、查看定义 Peek（Alt+F12）、光标处符号同词高亮（Monaco wordHighlighter 贡献，纯文本词匹配无 LSP）；引用升级列级定位；新增预览标签语义（EditorTab.preview，对齐 VS Code enablePreview：单击斜体预览、未修改原位替换、变脏/双击/「保持打开」转常驻）。FR-20 措辞同步 |

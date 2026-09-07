@@ -27,6 +27,16 @@ export interface EditorTab {
   isDiff?: boolean;
   diffOriginal?: string;
   diffModified?: string;
+  /**
+   * 预览标签（VS Code enablePreview 语义）：单击打开为 true（斜体显示），
+   * 再次打开其他文件时原位替换；变脏或显式 pin 后转常驻。
+   */
+  preview?: boolean;
+}
+
+/** openFile 选项：preview=false 表示以常驻方式打开（双击文件/保持打开） */
+export interface OpenFileOptions {
+  preview?: boolean;
 }
 
 export interface EditorGroup {
@@ -90,6 +100,20 @@ export function markDirty(path: string, dirty: boolean): void {
   if (dirty) dirtyPaths.add(path);
   else dirtyPaths.delete(path);
   useEditorStore.setState({ dirtyPaths });
+  // 变脏的预览标签自动转常驻（VS Code 行为：编辑即固定）
+  if (dirty) pinPreviewTabs(path);
+}
+
+/** 清除指定文件在所有组内的预览标记（变脏/保持打开共用） */
+function pinPreviewTabs(path: string): void {
+  const s = useEditorStore.getState();
+  if (!s.groups.some((g) => g.tabs.some((t) => t.path === path && t.preview))) return;
+  const groups = s.groups.map((g) =>
+    g.tabs.some((t) => t.path === path && t.preview)
+      ? { ...g, tabs: g.tabs.map((t) => (t.path === path ? { ...t, preview: false } : t)) }
+      : g,
+  );
+  useEditorStore.setState({ groups });
 }
 
 export function getModel(path: string): monaco.editor.ITextModel | null {
@@ -129,7 +153,7 @@ interface EditorStore {
   tabs: EditorTab[];
   activePath: string | null;
 
-  openFile: (path: string, groupId?: string) => Promise<void>;
+  openFile: (path: string, groupId?: string, opts?: OpenFileOptions) => Promise<void>;
   openDiff: (path: string, original: string, modified: string, title?: string, targetGroupId?: string) => void;
   closeTab: (path: string, groupId?: string) => boolean;
   resolveClose: (choice: "save" | "discard" | "cancel" | { path: string; choice: "save" | "discard" | "cancel" }) => Promise<void>;
@@ -145,6 +169,8 @@ interface EditorStore {
   closeAllTabs: () => void;
   setError: (msg: string | null) => void;
   forceClose: (path: string, groupId?: string) => void;
+  /** 预览标签转常驻（标签双击 / 右键「保持打开」/ 资源管理器双击打开） */
+  pinTab: (path: string, groupId?: string) => void;
   /** Markdown 预览：切换指定 md 标签的预览态（非 md 文件忽略） */
   togglePreview: (path: string) => void;
   /** Markdown 预览：path 是否为 md 文件 */
@@ -171,16 +197,24 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   tabs: [],
   activePath: null,
 
-  openFile: async (path, targetGroupId) => {
+  openFile: async (path, targetGroupId, opts) => {
+    const preview = opts?.preview ?? true;
     const s = get();
     const gId = targetGroupId ?? s.activeGroupId;
     const targetGroup = s.groups.find((g) => g.id === gId) ?? s.groups[0];
 
-    // 如果已经在目标组打开，直接设为目标组的 activePath 并聚焦该组
-    if (targetGroup && targetGroup.tabs.some((t) => t.path === path)) {
-      const nextGroups = s.groups.map((g) =>
-        g.id === targetGroup.id ? { ...g, activePath: path } : g,
-      );
+    // 如果已经在目标组打开：激活即可；显式以常驻方式打开（preview=false）时顺带转常驻。
+    // 注意已常驻的标签不因一次预览打开而降级为预览。
+    const existingTab = targetGroup?.tabs.find((t) => t.path === path);
+    if (targetGroup && existingTab) {
+      const needPin = !preview && existingTab.preview;
+      const nextGroups = s.groups.map((g) => {
+        if (g.id !== targetGroup.id) return g;
+        const tabs = needPin
+          ? g.tabs.map((t) => (t.path === path ? { ...t, preview: false } : t))
+          : g.tabs;
+        return { ...g, tabs, activePath: path };
+      });
       set({
         groups: nextGroups,
         activeGroupId: targetGroup.id,
@@ -232,21 +266,45 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
           if (dirty) dirtyPaths.add(path);
           else dirtyPaths.delete(path);
           set({ dirtyPaths });
+          // 变脏的预览标签自动转常驻（VS Code 行为：编辑即固定）
+          if (dirty) pinPreviewTabs(path);
         });
       }
 
       const curState = get();
       const currentGId = targetGroupId ?? curState.activeGroupId;
+      const newTab: EditorTab = { ...tab, preview };
+      // 被替换的预览标签（对象持有者避开闭包赋值的类型收窄问题）
+      const replaced: { groupId: string; path: string } = { groupId: "", path: "" };
+
       const nextGroups = curState.groups.map((g) => {
-        if (g.id === currentGId) {
-          return {
-            ...g,
-            tabs: [...g.tabs, tab],
-            activePath: path,
-          };
+        if (g.id !== currentGId) return g;
+        // 预览打开：原位替换组内未变脏的既有预览标签（VS Code enablePreview 行为）
+        if (preview) {
+          const idx = g.tabs.findIndex((t) => t.preview && !curState.dirtyPaths.has(t.path));
+          if (idx >= 0) {
+            const oldTab = g.tabs[idx];
+            replaced.groupId = g.id;
+            replaced.path = oldTab.path;
+            const tabs = [...g.tabs];
+            tabs[idx] = newTab;
+            return { ...g, tabs, activePath: path };
+          }
         }
-        return g;
+        return { ...g, tabs: [...g.tabs, newTab], activePath: path };
       });
+
+      // 被替换的预览标签：清理视图态；不再被任何组打开时释放 Model
+      if (replaced.path) {
+        const oldPath = replaced.path;
+        viewStates.delete(`${replaced.groupId}:${oldPath}`);
+        if (!isPathOpenInAnyGroup(nextGroups, oldPath)) {
+          models.get(oldPath)?.dispose();
+          models.delete(oldPath);
+          savedVersionIds.delete(oldPath);
+          viewStates.delete(oldPath);
+        }
+      }
 
       set({
         groups: nextGroups,
@@ -531,6 +589,20 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         ...deriveActiveState(nextGroups, activeGroupId),
       });
     }
+  },
+
+  pinTab: (path, groupId) => {
+    const s = get();
+    const gId = groupId ?? s.activeGroupId;
+    if (!s.groups.some((g) => g.id === gId && g.tabs.some((t) => t.path === path && t.preview))) {
+      return;
+    }
+    const groups = s.groups.map((g) =>
+      g.id === gId
+        ? { ...g, tabs: g.tabs.map((t) => (t.path === path ? { ...t, preview: false } : t)) }
+        : g,
+    );
+    set({ groups });
   },
 
   togglePreview: (path) => {

@@ -8,6 +8,8 @@ import "monaco-editor/esm/vs/editor/contrib/find/browser/findController.js";
 import "monaco-editor/esm/vs/editor/contrib/comment/browser/comment.js";
 import "monaco-editor/esm/vs/editor/contrib/multicursor/browser/multicursor.js";
 import "monaco-editor/esm/vs/editor/contrib/smartSelect/browser/smartSelect.js";
+// 光标处符号自动高亮（VS Code occurrence highlight；自带 * 语言纯文本词匹配回退，无 LSP 依赖）
+import "monaco-editor/esm/vs/editor/contrib/wordHighlighter/browser/wordHighlighter.js";
 
 // 常用语言的 Monarch 语法定义（纯高亮，零 worker）。
 // 注意：json 无 basic 高亮，复用 javascript（见 LANGUAGE_BY_EXT）。

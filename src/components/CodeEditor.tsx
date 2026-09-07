@@ -12,7 +12,9 @@ import {
 import { useStatusStore } from "../statusStore";
 import { useSettingsStore } from "../settingsStore";
 import { setActiveEditor, clearActiveEditor } from "../activeEditor";
-import { gotoDefinitionForWord } from "../commands";
+import { gotoDefinition, jumpTo } from "../navigation";
+import { useNavigationStore } from "../navigationStore";
+import PeekView, { PEEK_HEIGHT } from "./PeekView";
 import { monacoThemeName } from "../theme";
 
 /**
@@ -135,15 +137,21 @@ export default function CodeEditor({ groupId, activePath }: Props) {
           eol: model && model.getEOL() === "\n" ? "LF" : "CRLF",
         });
       });
-      // Ctrl+点击 → 转到定义（FR-20）
+      // Ctrl+点击 → 转到定义（FR-20）：单命中直跳，多命中在本组弹出 Peek；
+      // 普通点击关闭本组打开的 Peek（VS Code 点击 Peek 外区域关闭）
       clickHandlerRef.current = ed.onMouseDown((e) => {
-        if (!e.event.ctrlKey) return;
         const pos = e.target.position;
         const model = ed.getModel();
         const word = model && pos ? model.getWordAtPosition(pos)?.word : undefined;
-        if (!word) return;
-        e.event.preventDefault();
-        void gotoDefinitionForWord(word);
+        if (e.event.ctrlKey) {
+          if (!word || !pos) return;
+          e.event.preventDefault();
+          void gotoDefinition(groupId, word, pos.lineNumber);
+          return;
+        }
+        if (useNavigationStore.getState().peek?.groupId === groupId) {
+          useNavigationStore.getState().closePeek();
+        }
       });
       // 初始挂载时渲染期同步被跳过（editor 尚不存在），此处立即补一次
       syncRef.current();
@@ -157,6 +165,47 @@ export default function CodeEditor({ groupId, activePath }: Props) {
   useEffect(() => {
     editorRef.current?.updateOptions({ fontSize });
   }, [fontSize]);
+
+  // Peek 浮层（FR-20 增强）：仅本组渲染；编辑器滚动时重算锚点保持跟随
+  const peek = useNavigationStore((s) => (s.peek?.groupId === groupId ? s.peek : null));
+  const closePeek = useNavigationStore((s) => s.closePeek);
+  const [, setScrollTick] = useState(0);
+  useEffect(() => {
+    if (!peek) return;
+    const ed = editorRef.current;
+    if (!ed) return;
+    const d = ed.onDidScrollChange(() => setScrollTick((t) => t + 1));
+    return () => d.dispose();
+  }, [peek]);
+  // 切换标签（含跳转离开）时关闭本组 Peek
+  useEffect(() => {
+    closePeek();
+  }, [activePath, closePeek]);
+
+  const peekNode = (() => {
+    if (!peek) return null;
+    const ed = editorRef.current;
+    if (!ed) return null;
+    const pos = ed.getScrolledVisiblePosition({ lineNumber: peek.anchorLine, column: 1 });
+    if (!pos) return null;
+    const lineHeight = ed.getOption(monaco.editor.EditorOption.lineHeight);
+    const top = Math.max(
+      0,
+      Math.min(pos.top + lineHeight, ed.getLayoutInfo().height - PEEK_HEIGHT - 8),
+    );
+    return (
+      <PeekView
+        title={peek.title}
+        items={peek.items}
+        anchorTop={top}
+        onClose={closePeek}
+        onJump={(it) => {
+          closePeek();
+          void jumpTo(it.path, it.line, it.col);
+        }}
+      />
+    );
+  })();
 
   // 行/列定位联动（搜索结果点击 / 代码跳转 → openFile → 定位）：seq 驱动，model 就绪后执行
   const revealSeq = useRevealStore((s) => s.seq);
@@ -196,8 +245,9 @@ export default function CodeEditor({ groupId, activePath }: Props) {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="relative flex min-h-0 flex-1 flex-col">
       <div ref={attachContainer} className="min-h-0 flex-1" data-monaco-container="true" />
+      {peekNode}
     </div>
   );
 }

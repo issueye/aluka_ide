@@ -21,6 +21,9 @@ import MarkdownPreview from "./MarkdownPreview";
 const SHORTCUTS: [string, string][] = [
   ["Ctrl + Shift + P", "命令面板（M4）"],
   ["Ctrl + P", "快速打开文件（M4）"],
+  ["F12 / Ctrl + 点击", "转到定义（多命中 Peek 预览）"],
+  ["Shift + F12", "查找所有引用（Peek 预览）"],
+  ["Alt + ← / →", "后退 / 前进（跳转历史）"],
   ["Ctrl + \\", "向右拆分编辑器"],
   ["Ctrl + 1 / 2", "在编辑器组间切换焦点"],
   ["Ctrl + B", "显示 / 隐藏侧边栏"],
@@ -82,6 +85,7 @@ function Tab({ tab, groupId, isActiveGroup }: { tab: EditorTab; groupId: string;
   const setActiveTab = useEditorStore((s) => s.setActiveTab);
   const setActiveGroup = useEditorStore((s) => s.setActiveGroup);
   const closeTab = useEditorStore((s) => s.closeTab);
+  const pinTab = useEditorStore((s) => s.pinTab);
   const tabs = group?.tabs ?? [];
   const active = group?.activePath === tab.path;
   const [ctx, setCtx] = useState<{ x: number; y: number } | null>(null);
@@ -105,6 +109,7 @@ function Tab({ tab, groupId, isActiveGroup }: { tab: EditorTab; groupId: string;
   };
 
   const MENU: { label: string; action: () => void }[] = [
+    ...(tab.preview ? [{ label: "保持打开", action: () => pinTab(tab.path, groupId) }] : []),
     { label: "关闭", action: () => closeTab(tab.path, groupId) },
     { label: "关闭其他", action: closeOthers },
     { label: "关闭全部", action: closeAll },
@@ -118,6 +123,7 @@ function Tab({ tab, groupId, isActiveGroup }: { tab: EditorTab; groupId: string;
           setActiveTab(tab.path, groupId);
           setActiveGroup(groupId);
         }}
+        onDoubleClick={() => pinTab(tab.path, groupId)}
         onAuxClick={(e) => {
           if (e.button === 1) closeTab(tab.path, groupId);
         }}
@@ -125,7 +131,7 @@ function Tab({ tab, groupId, isActiveGroup }: { tab: EditorTab; groupId: string;
           e.preventDefault();
           setCtx({ x: e.clientX, y: e.clientY });
         }}
-        title={tab.path}
+        title={tab.preview ? `${tab.path}（预览）` : tab.path}
         className={`group flex h-full min-w-[100px] max-w-[220px] cursor-pointer items-center gap-1.5 border-r border-[var(--aluka-border)] px-3 text-[13px] ${
           active
             ? `${
@@ -141,7 +147,7 @@ function Tab({ tab, groupId, isActiveGroup }: { tab: EditorTab; groupId: string;
         ) : (
           <File size={14} className="shrink-0" />
         )}
-        <span className="truncate">{tab.name}</span>
+        <span className={`truncate ${tab.preview ? "italic" : ""}`}>{tab.name}</span>
         <button
           title={dirty ? "关闭（有未保存修改）" : "关闭"}
           onClick={(e) => {
