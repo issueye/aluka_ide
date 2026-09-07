@@ -105,6 +105,16 @@ pub struct WorkspaceState {
     watcher: Mutex<Option<notify::RecommendedWatcher>>,
 }
 
+/// 启动参数携带的待打开工作区目录，取走即清空。
+#[derive(Default)]
+pub struct PendingWorkspace(Mutex<Option<String>>);
+
+/// 前端初始化时取走待打开目录；普通启动（无参数）返回 null。
+#[tauri::command]
+fn take_pending_workspace(state: tauri::State<'_, PendingWorkspace>) -> Option<String> {
+    state.0.lock().ok()?.take()
+}
+
 /// 打开系统文件夹选择对话框；取消返回 None。
 /// rfd 对话框不能阻塞主线程，放入 blocking 线程池执行。
 #[tauri::command]
@@ -368,10 +378,20 @@ async fn get_git_branch(root: String) -> Result<Option<String>, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 以项目目录作为第一个位置参数拉起本应用；
+    // 跳过 "-" 开头的选项，取第一个确实存在的目录，非法路径直接忽略。
+    let pending_workspace = std::env::args_os()
+        .skip(1)
+        .filter(|a| !a.to_string_lossy().starts_with('-'))
+        .map(|a| a.to_string_lossy().trim_matches('"').to_string())
+        .find(|p| !p.is_empty() && Path::new(p).is_dir());
+
     tauri::Builder::default()
+        .manage(PendingWorkspace(Mutex::new(pending_workspace)))
         .manage(WorkspaceState::default())
         .manage(terminal::TerminalState::default())
         .invoke_handler(tauri::generate_handler![
+            take_pending_workspace,
             open_folder_dialog,
             read_dir,
             create_entry,

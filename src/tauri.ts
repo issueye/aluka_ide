@@ -11,6 +11,11 @@ export async function openFolderDialog(): Promise<string | null> {
   return invoke<string | null>("open_folder_dialog");
 }
 
+/** 取走启动参数携带的待打开目录 */
+export async function takePendingWorkspace(): Promise<string | null> {
+  return invoke<string | null>("take_pending_workspace");
+}
+
 /** 读取目录的单层子项（已按目录优先、名称排序，重目录已过滤） */
 export async function readDir(path: string): Promise<FileNode[]> {
   return invoke<FileNode[]>("read_dir", { path });

@@ -16,6 +16,7 @@ import { useEditorStore } from "./editorStore";
 import { loadExtensions } from "./extHost/registry";
 import { scheduleTreeRefresh } from "./treeStore";
 import { useSymbolsStore } from "./symbolsStore";
+import { takePendingWorkspace } from "./tauri";
 
 export default function App() {
   const sidebarVisible = useAppStore((s) => s.sidebarVisible);
@@ -31,6 +32,22 @@ export default function App() {
     return () => {
       uninstall();
       uninstallTerminal();
+    };
+  }, []);
+
+  // 外部目录参数：取走后作为工作区打开
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const pending = await takePendingWorkspace();
+        if (pending && !cancelled) useAppStore.getState().openWorkspace(pending);
+      } catch {
+        // 纯浏览器 dev 下无 Tauri IPC，忽略
+      }
+    })();
+    return () => {
+      cancelled = true;
     };
   }, []);
 

@@ -50,3 +50,55 @@
 - WSL 探测要求已安装发行版（`wsl -l -q` 非空才列出）；未装发行版时不展示，避免点击报错。
 - 桌面上另有一份旧版 `aluka-ide.exe` 副本（多 Shell 功能之前构建）：新 settings.json 含 `terminalShell` 字段，旧版因 `deny_unknown_fields` 读 settings.json 会报错并回退 localStorage 镜像（主题等不受影响）；建议用新构建替换桌面副本。
 - 陷阱记录：`npm run build 2>&1 | tail` 会掩盖真实退出码，后续验证一律改用「输出重定向到文件 + 单独 echo $?」。
+
+
+
+# TODO 2026-09-07（里程碑 M10）
+
+> 状态标记：⬜ 未开始 · 🔄 进行中 · ✅ 完成 · ⛔ 受阻
+
+| 项 | 内容 |
+| --- | --- |
+| 日期 | 2026-09-07 |
+| 关联里程碑 | M10（见 [DEVELOPMENT_PLAN.md](../../DEVELOPMENT_PLAN.md)） |
+| 关联需求 | FR-21（见 [REQUIREMENTS.md](../../REQUIREMENTS.md)） |
+
+## 今日目标（总）
+
+1. Aluka IDE 支持接收外部目录参数，启动后直接打开该目录为工作区
+2. 按 AGENTS 工作流同步 REQUIREMENTS / DEVELOPMENT_PLAN / TODO，跑通质量门验证
+
+## 任务清单
+
+### T1 Rust 启动参数与待打开工作区状态 ✅
+
+- **具体目标**：解析 argv 中第一个存在的目录参数，存入受管状态；新增 `take_pending_workspace` 命令并注册
+- **验收标准**：
+  - [ ] `lib.rs` 实现 `PendingWorkspace` 状态与 `take_pending_workspace`
+  - [ ] `invoke_handler` 注册命令
+  - [ ] 无参数启动返回 null；非法路径忽略不崩溃
+
+### T2 前端取走参数并打开工作区 ✅
+
+- **具体目标**：`tauri.ts` 补类型化封装；`App.tsx` 挂载时取走 pending 并 `openWorkspace`
+- **验收标准**：
+  - [ ] `tauri.ts` 新增 `takePendingWorkspace` 封装
+  - [ ] `App.tsx` 挂载时打开外部目录为工作区
+  - [ ] 纯浏览器 dev 无 IPC 时静默忽略
+
+### T3 文档与验证收口 ✅
+
+- **具体目标**：REQUIREMENTS 新增 FR-21；DEVELOPMENT_PLAN 新增 M10；跑质量门并填写验证记录
+- **验收标准**：
+  - [ ] `npm run build` 通过
+  - [ ] `cargo check` / `cargo clippy -- -D warnings` / `cargo fmt` 通过
+  - [ ] 以目录参数启动后工作区打开
+
+## 验证记录
+
+| 时间 | 验证项（命令/操作） | 结果 | 备注/截图 |
+| --- | --- | --- | --- |
+
+## 未决问题与次日移交
+
+- 无
