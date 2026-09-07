@@ -11,15 +11,18 @@ import {
   Folder,
   FolderOpen,
   FolderPlus,
+  FolderSearch,
   Pencil,
   RefreshCw,
+  Terminal,
   Trash2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppStore } from "../store";
 import { useTreeStore } from "../treeStore";
 import { useEditorStore } from "../editorStore";
-import { createEntry, deleteEntry, openFolderDialog, renameEntry } from "../tauri";
+import { createEntry, deleteEntry, openFolderDialog, renameEntry, revealInExplorer } from "../tauri";
+import { openTerminalAt } from "../commands";
 import type { FileNode } from "../types";
 
 /** 常见扩展名 → 图标/颜色（轻量实现；文件图标主题属 M6 扩展范畴） */
@@ -252,6 +255,24 @@ export default function Explorer() {
         },
       });
     }
+    items.push(
+      {
+        label: "在控制台打开",
+        icon: Terminal,
+        action: () => {
+          setMenu(null);
+          openTerminalAt(target);
+        },
+      },
+      {
+        label: "从文件资源管理器打开",
+        icon: FolderSearch,
+        action: () => {
+          setMenu(null);
+          void revealInExplorer(node.path);
+        },
+      },
+    );
     items.push(
       {
         label: "重命名",

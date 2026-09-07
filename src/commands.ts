@@ -388,6 +388,22 @@ async function closeWorkspace(): Promise<void> {
   for (const s of [...t.sessions]) await t.kill(s.id);
 }
 
+/**
+ * 在指定目录打开终端（资源管理器右键「在控制台打开」与命令面板「新建终端」共用）：
+ * 按默认 Shell 新建会话，会话编号与面板展开逻辑集中在此。
+ */
+export function openTerminalAt(root: string): void {
+  const t = useTerminalStore.getState();
+  // 先建会话再开面板：Panel 首开自动建会话的条件（sessions 为空）即不成立，避免双重创建
+  void resolveDefaultShell()
+    .then((def) => t.create(root, `${def.name} ${t.sessions.length + 1}`, def.id))
+    .then((id) => {
+      if (id != null && !useAppStore.getState().panelOpen) {
+        useAppStore.getState().togglePanel();
+      }
+    });
+}
+
 export function registerCoreCommands(): void {
   registerCommands([
     {
@@ -855,19 +871,12 @@ export function registerCoreCommands(): void {
       category: "终端",
       keybinding: "ctrl+shift+`",
       run: () => {
-        const app = useAppStore.getState();
-        const root = app.workspaceRoot;
+        const root = useAppStore.getState().workspaceRoot;
         if (!root) {
           showInfo("请先打开文件夹再使用终端");
           return;
         }
-        const t = useTerminalStore.getState();
-        // 先建会话再开面板：Panel 首开自动建会话的条件（sessions 为空）即不成立，避免双重创建
-        void resolveDefaultShell()
-          .then((def) => t.create(root, `${def.name} ${t.sessions.length + 1}`, def.id))
-          .then((id) => {
-            if (id != null && !app.panelOpen) app.togglePanel();
-          });
+        openTerminalAt(root);
       },
     },
     {

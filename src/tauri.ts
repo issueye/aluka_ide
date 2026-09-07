@@ -83,6 +83,11 @@ export async function setSettings(settings: UserSettings): Promise<void> {
   return invoke<void>("set_settings", { settings });
 }
 
+/** 在系统文件管理器中显示该文件/目录（文件为选中状态；Windows 走 explorer.exe） */
+export async function revealInExplorer(path: string): Promise<void> {
+  return invoke<void>("reveal_in_explorer", { path });
+}
+
 /** 列出工作区全部文件（快速打开用；后端跳过重目录/隐藏目录，上限 2 万） */
 export async function listWorkspaceFiles(root: string): Promise<string[]> {
   return invoke<string[]>("list_workspace_files", { root });

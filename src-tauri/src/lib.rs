@@ -325,6 +325,46 @@ fn set_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
     std::fs::write(&path, text).map_err(|e| format!("写入设置失败: {e}"))
 }
 
+/// 在系统文件管理器中显示路径（Windows 用 explorer.exe，文件为选中状态；
+/// 其他平台用 xdg-open 打开所在目录）。
+#[tauri::command]
+fn reveal_in_explorer(path: String) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let p = Path::new(&path);
+        let mut cmd = std::process::Command::new("explorer.exe");
+        if p.is_file() {
+            // 注意：explorer.exe 的 /select, 需与路径拼成单个参数（与 VS Code 一致，
+            // 含空格路径可用，含逗号路径为已知边界）
+            cmd.arg(format!("/select,{path}"));
+        } else {
+            cmd.arg(&path);
+        }
+        cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        cmd.spawn()
+            .map_err(|e| format!("打开文件资源管理器失败: {e}"))?;
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let p = Path::new(&path);
+        // xdg-open 无法选中文件，打开所在目录
+        let open_target = if p.is_file() {
+            p.parent()
+                .map(|d| d.to_string_lossy().into_owned())
+                .unwrap_or_else(|| path.clone())
+        } else {
+            path.clone()
+        };
+        std::process::Command::new("xdg-open")
+            .arg(&open_target)
+            .spawn()
+            .map_err(|e| format!("打开文件管理器失败: {e}"))?;
+        Ok(())
+    }
+}
+
 /// 列出工作区内所有文件（快速打开 Ctrl+P 用）。
 /// 跳过重目录与隐藏目录（. 前缀），限制最大条目防卡死。
 #[tauri::command]
@@ -403,6 +443,7 @@ pub fn run() {
             save_all,
             get_settings,
             set_settings,
+            reveal_in_explorer,
             list_workspace_files,
             search_workspace,
             find_workspace_symbols,
