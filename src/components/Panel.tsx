@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, Plus, X } from "lucide-react";
+import { Check, ChevronDown, Copy, Plus, Scissors, Square, X } from "lucide-react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import { useAppStore } from "../store";
 import {
   registerTerminalClearHook,
@@ -9,10 +10,13 @@ import {
   useTerminalStore,
 } from "../terminalStore";
 import { useSettingsStore } from "../settingsStore";
-import type { TerminalShell } from "../tauri";
+import { openExternalUrl, type TerminalShell } from "../tauri";
+import { showInfo } from "../notificationStore";
 
 /**
  * 底部面板（ConPTY 升级）：xterm.js 全功能交互终端 + 多标签 + ANSI 彩色渲染。
+ * Ctrl+点击 URL 经后端白名单（http/https）在系统浏览器打开；
+ * 右键菜单提供复制/粘贴/清空/中断会话。
  */
 
 interface TerminalViewProps {
@@ -27,7 +31,9 @@ function TerminalView({ id, visible }: TerminalViewProps) {
   const fitAddonRef = useRef<FitAddon | null>(null);
   const write = useTerminalStore((s) => s.write);
   const resize = useTerminalStore((s) => s.resize);
+  const kill = useTerminalStore((s) => s.kill);
   const theme = useSettingsStore((s) => s.theme);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
 
   // 初始化 xterm 实例
   useEffect(() => {
@@ -92,6 +98,13 @@ function TerminalView({ id, visible }: TerminalViewProps) {
     term.loadAddon(fitAddon);
     term.open(el);
 
+    // Ctrl+点击 URL → 后端白名单校验后系统浏览器打开（VS Code 同款交互）
+    term.loadAddon(
+      new WebLinksAddon((_, link) => {
+        void openExternalUrl(link).catch((e) => showInfo(String(e)));
+      }),
+    );
+
     terminalRef.current = term;
     fitAddonRef.current = fitAddon;
 
@@ -116,11 +129,12 @@ function TerminalView({ id, visible }: TerminalViewProps) {
     // 登记清空钩子（菜单「终端 → 清空终端」）
     const unsubClear = registerTerminalClearHook(id, () => term.clear());
 
-    // 监听容器大小动态调整
+    // 监听容器大小动态调整（不捕获 visible：挂载后切换可见性时闭包已过期，
+    // 改由 el.offsetParent 判断当前是否在布局流中——隐藏时 fit 会得到错误尺寸）
     const resizeObserver = new ResizeObserver(() => {
-      if (!visible || !containerRef.current) return;
+      if (!containerRef.current) return;
       try {
-        fitAddon.fit();
+        if (el.offsetParent !== null) fitAddon.fit();
         void resize(id, term.cols, term.rows);
       } catch {
         /* 忽略容器隐藏时的尺寸异常 */
@@ -139,21 +153,21 @@ function TerminalView({ id, visible }: TerminalViewProps) {
     };
   }, [id]);
 
-  // 当标签切换为可见时，自适应尺寸并聚焦
+  // 当标签切换为可见时，自适应尺寸并聚焦（rAF 确保在布局提交后执行）
   useEffect(() => {
-    if (visible && fitAddonRef.current && terminalRef.current) {
-      setTimeout(() => {
-        try {
-          fitAddonRef.current?.fit();
-          if (terminalRef.current) {
-            void resize(id, terminalRef.current.cols, terminalRef.current.rows);
-            terminalRef.current.focus();
-          }
-        } catch {
-          /* 忽略 */
+    if (!visible || !fitAddonRef.current || !terminalRef.current) return;
+    const raf = requestAnimationFrame(() => {
+      try {
+        fitAddonRef.current?.fit();
+        if (terminalRef.current) {
+          void resize(id, terminalRef.current.cols, terminalRef.current.rows);
+          terminalRef.current.focus();
         }
-      }, 30);
-    }
+      } catch {
+        /* 忽略 */
+      }
+    });
+    return () => cancelAnimationFrame(raf);
   }, [visible, id, resize]);
 
   // 主题切换联动
@@ -178,10 +192,84 @@ function TerminalView({ id, visible }: TerminalViewProps) {
 
   return (
     <div
-      style={{ display: visible ? "flex" : "none" }}
-      className="relative min-h-0 min-w-0 flex-1 flex-col bg-[var(--aluka-bg)] p-1.5"
+      // 隐藏态用 absolute + visibility 而非 display:none：
+      // 1) 脱离布局流，多会话并存时不挤压可见终端（新建会话后旧终端显示错乱的根因）
+      // 2) xterm DOM 存活不重建，切回时无需重放缓冲区
+      // visibility:hidden 天然不可交互，无需负 zIndex（基准容器为上方 relative 的会话列表）
+      style={{
+        position: visible ? "relative" : "absolute",
+        visibility: visible ? "visible" : "hidden",
+        inset: visible ? undefined : 0,
+      }}
+      className="min-h-0 min-w-0 flex-1 flex-col bg-[var(--aluka-bg)] p-1.5"
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setCtxMenu({ x: e.clientX, y: e.clientY });
+      }}
     >
       <div ref={containerRef} className="h-full w-full overflow-hidden" />
+
+      {/* 终端右键菜单：复制/粘贴/清空/中断会话 */}
+      {ctxMenu && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setCtxMenu(null)} onContextMenu={(e) => { e.preventDefault(); setCtxMenu(null); }} />
+          <div
+            className="fixed z-50 min-w-[160px] rounded-md border border-[var(--aluka-border)] bg-[var(--aluka-overlay-bg)] py-1 shadow-2xl"
+            style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          >
+            <button
+              onClick={() => {
+                const sel = terminalRef.current?.getSelection();
+                if (sel) void navigator.clipboard.writeText(sel).catch(() => {});
+                setCtxMenu(null);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1 text-left text-[13px] text-[var(--aluka-text)] hover:bg-[var(--aluka-btn-bg)] hover:text-white"
+            >
+              <Copy size={14} />
+              复制（选中文字）
+            </button>
+            <button
+              onClick={() => {
+                void navigator.clipboard
+                  .readText()
+                  .then((text) => {
+                    if (text) void write(id, text);
+                  })
+                  .catch(() => showInfo("读取剪贴板失败"));
+                setCtxMenu(null);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1 text-left text-[13px] text-[var(--aluka-text)] hover:bg-[var(--aluka-btn-bg)] hover:text-white"
+            >
+              <Scissors size={14} />
+              粘贴
+            </button>
+            <button
+              onClick={() => {
+                terminalRef.current?.clear();
+                setCtxMenu(null);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1 text-left text-[13px] text-[var(--aluka-text)] hover:bg-[var(--aluka-btn-bg)] hover:text-white"
+            >
+              <Square size={14} />
+              清空终端
+            </button>
+            <div className="my-1 border-t border-[var(--aluka-border)]" />
+            <button
+              onClick={() => {
+                // 中断：先发 Ctrl+C（前台命令优雅中断），再强制结束整个会话
+                void write(id, "\x03");
+                void kill(id);
+                setCtxMenu(null);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-1 text-left text-[13px] text-[#f48771] hover:bg-[var(--aluka-btn-bg)] hover:text-white"
+            >
+              <X size={14} />
+              中断并结束会话
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -318,7 +406,9 @@ export default function Panel() {
       </div>
 
       {sessions.length > 0 ? (
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        // relative：隐藏终端 absolute inset:0 的定位基准（否则会锚到更外层，
+        // 曾导致隐藏终端铺满编辑器区域、遮挡欢迎页/终端互抢点击）
+        <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
           {sessions.map((t) => (
             <TerminalView key={t.id} id={t.id} visible={activeId === t.id} />
           ))}

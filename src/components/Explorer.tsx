@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 import {
   ChevronDown,
   ChevronRight,
+  ClipboardCopy,
+  Copy,
   File,
   FileCode2,
   FileJson,
@@ -270,6 +272,22 @@ export default function Explorer() {
         action: () => {
           setMenu(null);
           void revealInExplorer(node.path);
+        },
+      },
+      {
+        label: "复制路径",
+        icon: Copy,
+        action: () => {
+          setMenu(null);
+          void navigator.clipboard.writeText(node.path).catch(() => {});
+        },
+      },
+      {
+        label: "复制名称",
+        icon: ClipboardCopy,
+        action: () => {
+          setMenu(null);
+          void navigator.clipboard.writeText(node.name).catch(() => {});
         },
       },
     );

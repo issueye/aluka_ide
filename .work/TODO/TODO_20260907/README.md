@@ -102,3 +102,54 @@
 ## 未决问题与次日移交
 
 - 无
+
+# TODO 2026-09-07（M10 之后 · 动态语言高亮 FR-09 增强）
+
+> 状态标记：⬜ 未开始 · 🔄 进行中 · ✅ 完成 · ⛔ 受阻
+
+| 项 | 内容 |
+| --- | --- |
+| 日期 | 2026-09-07 |
+| 关联里程碑 | M4 增强（FR-09） |
+| 关联需求 | FR-09 动态语言高亮（见 [REQUIREMENTS.md](../../REQUIREMENTS.md) v0.2.8） |
+
+## 今日目标（总）
+
+1. 突破编译期 24 语言静态 import 限制：运行时注册 Monarch tokenizer 自定义语言
+2. 「管理语言高亮」弹窗（列表 + 添加表单），持久化 `~/.aluka-ide/languages.json` 重启自动加载
+
+## 任务清单
+
+### T4 动态语言注册与持久化 ✅
+
+- **具体目标**：monaco-setup `registerMonarchLanguage`（Monaco register + Monarch provider + 语言配置 + 扩展名映射动态写入）；Rust `get/set_user_languages`；languageStore load/add/remove；LanguageManager 弹窗；命令面板「管理语言高亮」；palette kind 扩展 languages
+- **验收标准**：
+  - [x] `npm run build` / `cargo clippy -D warnings` / `cargo fmt` / `npm run tauri build` 全绿（真实退出码验证）
+  - [ ] 用户走查：添加 Monarch 语法定义 → 对应扩展名文件高亮 → 重启仍生效
+
+## 边界说明
+
+- TextMate grammar（.tmLanguage.json）不直接支持：需先转换为 Monarch tokenizer JSON（VS Code basic-languages 同源格式）
+- 同 id 用户定义覆盖内置语言为允许行为（VS Code 语言优先级一致）
+- 移除语言会话内不反注册（Monaco 无 API），重启后完全生效
+
+
+# TODO 2026-09-07（M10 之后 · 终端与右键增强 v0.2.9）
+
+## 任务清单
+
+### T5 终端链接与右键菜单 ✅
+
+- **实现**：
+  - `@xterm/addon-web-links`（v0.12）：Ctrl+点击 URL → `open_external_url`（白名单 http/https，rundll32 打开系统默认浏览器）
+  - 终端右键菜单：复制（选中文字）/ 粘贴（剪贴板→PTY）/ 清空 / 中断并结束会话（发 `\x03` + kill）
+  - Ctrl+C 键盘中断：xterm onData → ConPTY 天然 SIGINT（无需额外实现，验证记录见走查）
+  - 资源管理器右键补「复制路径」「复制名称」
+- **验收标准**：
+  - [x] `npm run build` / `cargo clippy -D warnings` / `cargo fmt` 全绿（真实退出码）
+  - [ ] 用户走查：Ctrl+点击 http/https 链接浏览器打开；右键四项菜单可用；Ctrl+C 中断 ping 等长命令；右键文件复制路径
+
+## 边界说明
+
+- URL 协议白名单仅 http/https（file:/javascript: 拒绝，防注入）
+- 粘贴走 navigator.clipboard（WebView2 授权）；终端内已有选中时右键直接覆盖式操作
