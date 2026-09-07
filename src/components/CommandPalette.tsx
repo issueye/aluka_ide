@@ -39,7 +39,7 @@ export default function CommandPalette() {
   const [files, setFiles] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const isOpen = palette !== null;
+  const isOpen = palette !== null && palette !== "languages";
 
   // 打开时重置查询并聚焦输入框
   useEffect(() => {

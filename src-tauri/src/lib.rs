@@ -325,6 +325,66 @@ fn set_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
     std::fs::write(&path, text).map_err(|e| format!("写入设置失败: {e}"))
 }
 
+/// 用户自定义语言（FR-09 动态语法高亮）：原样存取 serde_json::Value，
+/// 结构校验在前端（Monarch 定义形状）；文件不存在返回 None。
+#[tauri::command]
+fn get_user_languages(app: AppHandle) -> Result<Option<serde_json::Value>, String> {
+    let path = app
+        .path()
+        .home_dir()
+        .map_err(|e| format!("无法定位用户主目录: {e}"))?
+        .join(".aluka-ide")
+        .join("languages.json");
+    if !path.exists() {
+        return Ok(None);
+    }
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("读取语言定义失败: {e}"))?;
+    serde_json::from_str(&text).map_err(|e| format!("语言定义 JSON 无效: {e}"))
+}
+
+/// 写入用户自定义语言列表（格式化 JSON，便于人工编辑）。
+#[tauri::command]
+fn set_user_languages(app: AppHandle, languages: serde_json::Value) -> Result<(), String> {
+    let dir = app
+        .path()
+        .home_dir()
+        .map_err(|e| format!("无法定位用户主目录: {e}"))?
+        .join(".aluka-ide");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建配置目录失败: {e}"))?;
+    let text = serde_json::to_string_pretty(&languages).map_err(|e| format!("序列化失败: {e}"))?;
+    std::fs::write(dir.join("languages.json"), text).map_err(|e| format!("写入语言定义失败: {e}"))
+}
+
+/// 在系统默认浏览器打开 URL（终端 Ctrl+点击链接用）。
+/// 协议白名单：仅 http/https，拒绝 file:/javascript: 等（NFR-03 无外联指应用自身，
+/// 用户主动点击链接属显式意愿）。
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), String> {
+    let lower = url.trim().to_ascii_lowercase();
+    if !(lower.starts_with("http://") || lower.starts_with("https://")) {
+        return Err(format!("不允许的链接协议: {url}"));
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // rundll32 FileProtocolHandler：系统默认浏览器打开，零 shell 插件依赖
+        std::process::Command::new("rundll32")
+            .args(["url.dll,FileProtocolHandler", url.as_str()])
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+            .spawn()
+            .map_err(|e| format!("打开链接失败: {e}"))?;
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("打开链接失败: {e}"))?;
+        Ok(())
+    }
+}
+
 /// 在系统文件管理器中显示路径（Windows 用 explorer.exe，文件为选中状态；
 /// 其他平台用 xdg-open 打开所在目录）。
 #[tauri::command]
@@ -443,6 +503,9 @@ pub fn run() {
             save_all,
             get_settings,
             set_settings,
+            get_user_languages,
+            set_user_languages,
+            open_external_url,
             reveal_in_explorer,
             list_workspace_files,
             search_workspace,

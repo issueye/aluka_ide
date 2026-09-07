@@ -7,11 +7,13 @@ import EditorArea from "./components/EditorArea";
 import Panel from "./components/Panel";
 import StatusBar from "./components/StatusBar";
 import CommandPalette from "./components/CommandPalette";
+import LanguageManager from "./components/LanguageManager";
 import Notifications from "./components/Notifications";
 import { useAppStore } from "./store";
 import { installKeybindingHub, registerCoreCommands } from "./commands";
 import { loadSettings, useSettingsStore } from "./settingsStore";
 import { setupTerminalListeners } from "./terminalStore";
+import { useLanguageStore } from "./languageStore";
 import { useEditorStore } from "./editorStore";
 import { loadExtensions } from "./extHost/registry";
 import { scheduleTreeRefresh } from "./treeStore";
@@ -21,12 +23,15 @@ import { takePendingWorkspace } from "./tauri";
 export default function App() {
   const sidebarVisible = useAppStore((s) => s.sidebarVisible);
   const panelOpen = useAppStore((s) => s.panelOpen);
+  const palette = useAppStore((s) => s.palette);
+  const setPalette = useAppStore((s) => s.setPalette);
 
   // 快捷键中枢（FR-08）：单表映射统一分发；命令注册与设置加载一次即可
   useEffect(() => {
     registerCoreCommands();
     void loadSettings();
     void loadExtensions(); // M6：扫描并激活全局/工作区扩展
+    void useLanguageStore.getState().load(); // FR-09：自定义 Monarch 语言注册
     const uninstall = installKeybindingHub();
     const uninstallTerminal = setupTerminalListeners();
     return () => {
@@ -102,6 +107,7 @@ export default function App() {
       </div>
       <StatusBar />
       <CommandPalette />
+      {palette === "languages" && <LanguageManager onClose={() => setPalette(null)} />}
       <Notifications />
     </div>
   );

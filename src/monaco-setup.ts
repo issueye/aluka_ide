@@ -113,6 +113,59 @@ const LANGUAGE_LABEL: Record<string, string> = {
   plaintext: "纯文本",
 };
 
+/**
+ * 动态语言注册（FR-09 增强：突破编译期 24 语言静态表）。
+ * 数据来源：用户在「添加语言高亮」命令中提交 / VS Code 扩展 contributes.grammars（planning）。
+ * 语法采用 Monarch tokenizer JSON（monaco.languages.setMonarchTokensProvider 的序列化形式），
+ * 兼容 VS Code 生态的 Monarch 语法定义（TextMate grammar 需转换，见语言管理器文档）。
+ */
+export interface MonarchLanguageDef {
+  /** Monaco 语言 id（小写字母数字与连字符，如 "dockerfile"） */
+  id: string;
+  /** 显示名（状态栏/语言列表用） */
+  label: string;
+  /** 关联扩展名（不含点，如 ["dockerfile", "docker"]） */
+  extensions: string[];
+  /** Monarch tokenizer：状态名 → 规则数组（monaco.languages.IMonarchLanguage 的 tokenizer 字段） */
+  tokenizer: Record<string, unknown>;
+  /** 行注释符（可选，如 "//" 或 "#"） */
+  lineComment?: string;
+  /** 块注释（可选，[开始, 结束]） */
+  blockComment?: [string, string];
+  /** 括号对（可选，如 [["(", ")"], ["{", "}"]]） */
+  brackets?: [string, string][];
+}
+
+const dynamicDefs = new Map<string, MonarchLanguageDef>();
+
+/** 注册动态语言；id 重复时后者覆盖（语言配置层面），扩展名映射追加。 */
+export function registerMonarchLanguage(def: MonarchLanguageDef): void {
+  if (!/^[a-z0-9][a-z0-9-]*$/i.test(def.id) || def.extensions.length === 0) return;
+  monaco.languages.register({
+    id: def.id,
+    extensions: def.extensions.map((e) => `.${e}`),
+  });
+  monaco.languages.setMonarchTokensProvider(def.id, {
+    tokenizer: def.tokenizer as monaco.languages.IMonarchLanguage["tokenizer"],
+  });
+  monaco.languages.setLanguageConfiguration(def.id, {
+    comments: def.lineComment
+      ? { lineComment: def.lineComment, blockComment: def.blockComment }
+      : undefined,
+    brackets: def.brackets ?? [["(", ")"], ["[", "]"], ["{", "}"]],
+  });
+  dynamicDefs.set(def.id, def);
+  for (const e of def.extensions) {
+    LANGUAGE_BY_EXT[e] = def.id;
+  }
+  if (def.label) LANGUAGE_LABEL[def.id] = def.label;
+}
+
+/** 已动态注册语言定义（语言管理器展示/持久化用） */
+export function listDynamicLanguages(): MonarchLanguageDef[] {
+  return [...dynamicDefs.values()];
+}
+
 export function languageOf(path: string): string {
   const name = path.split(/[\\/]/).pop() ?? "";
   const ext = name.includes(".")

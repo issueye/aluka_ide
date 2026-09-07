@@ -83,6 +83,21 @@ export async function setSettings(settings: UserSettings): Promise<void> {
   return invoke<void>("set_settings", { settings });
 }
 
+/** 读取用户自定义语言定义（~/.aluka-ide/languages.json；null = 尚无文件） */
+export async function getUserLanguages(): Promise<unknown | null> {
+  return invoke<unknown | null>("get_user_languages");
+}
+
+/** 写入用户自定义语言定义（结构校验在前端 languageStore） */
+export async function setUserLanguages(languages: unknown): Promise<void> {
+  return invoke<void>("set_user_languages", { languages });
+}
+
+/** 在系统默认浏览器打开 URL（后端白名单仅 http/https） */
+export async function openExternalUrl(url: string): Promise<void> {
+  return invoke<void>("open_external_url", { url });
+}
+
 /** 在系统文件管理器中显示该文件/目录（文件为选中状态；Windows 走 explorer.exe） */
 export async function revealInExplorer(path: string): Promise<void> {
   return invoke<void>("reveal_in_explorer", { path });

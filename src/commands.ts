@@ -553,6 +553,12 @@ export function registerCoreCommands(): void {
       run: () => useAppStore.getState().togglePanel(),
     },
     {
+      id: "workbench.action.manageLanguages",
+      title: "管理语言高亮（添加自定义语法）",
+      category: "查看",
+      run: () => useAppStore.getState().setPalette("languages"),
+    },
+    {
       id: "workbench.view.explorer",
       title: "资源管理器",
       category: "查看",
