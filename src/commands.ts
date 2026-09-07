@@ -2,7 +2,7 @@ import { useAppStore } from "./store";
 import { useEditorStore } from "./editorStore";
 import { useGitStore } from "./gitStore";
 import { useSettingsStore } from "./settingsStore";
-import { useTerminalStore, clearTerminalView } from "./terminalStore";
+import { useTerminalStore, clearTerminalView, resolveDefaultShell } from "./terminalStore";
 import {
   findReferencesCommand,
   gotoDefinitionCommand,
@@ -351,7 +351,12 @@ async function runActiveFile(): Promise<void> {
   const alive =
     t.sessions.find((s) => s.id === t.activeId && !s.closed) ??
     t.sessions.find((s) => !s.closed);
-  const id = alive?.id ?? (await t.create(app.workspaceRoot, `运行 ${name}`));
+  let id: number | null | undefined = alive?.id;
+  if (id == null) {
+    // 无可用会话时按默认 Shell 新建
+    const def = await resolveDefaultShell();
+    id = await t.create(app.workspaceRoot, `运行 ${name}`, def.id);
+  }
   if (id == null) {
     showInfo("创建终端会话失败");
     return;
@@ -851,15 +856,18 @@ export function registerCoreCommands(): void {
       keybinding: "ctrl+shift+`",
       run: () => {
         const app = useAppStore.getState();
-        if (!app.workspaceRoot) {
+        const root = app.workspaceRoot;
+        if (!root) {
           showInfo("请先打开文件夹再使用终端");
           return;
         }
         const t = useTerminalStore.getState();
         // 先建会话再开面板：Panel 首开自动建会话的条件（sessions 为空）即不成立，避免双重创建
-        void t.create(app.workspaceRoot, `PowerShell ${t.sessions.length + 1}`).then((id) => {
-          if (id != null && !app.panelOpen) app.togglePanel();
-        });
+        void resolveDefaultShell()
+          .then((def) => t.create(root, `${def.name} ${t.sessions.length + 1}`, def.id))
+          .then((id) => {
+            if (id != null && !app.panelOpen) app.togglePanel();
+          });
       },
     },
     {

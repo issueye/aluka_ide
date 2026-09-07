@@ -3,10 +3,13 @@ import { listen } from "@tauri-apps/api/event";
 import {
   createTerminal,
   killTerminal,
+  listTerminalShells,
   reapTerminal,
   resizeTerminal,
   writeTerminal,
+  type TerminalShell,
 } from "./tauri";
+import { useSettingsStore } from "./settingsStore";
 
 /**
  * 终端会话状态（ConPTY 升级）：
@@ -22,7 +25,18 @@ export interface TerminalSession {
 interface TerminalStore {
   sessions: TerminalSession[];
   activeId: number | null;
-  create: (root: string, name?: string, cols?: number, rows?: number) => Promise<number | null>;
+  /** 本机可用 Shell 候选（面板打开时探测一次） */
+  shells: TerminalShell[];
+  /** 是否已完成一次 Shell 探测（含失败），自动创建终端前以此判定 */
+  shellsLoaded: boolean;
+  create: (
+    root: string,
+    name?: string,
+    shell?: string,
+    cols?: number,
+    rows?: number,
+  ) => Promise<number | null>;
+  loadShells: () => Promise<void>;
   write: (id: number, data: string) => Promise<void>;
   resize: (id: number, cols: number, rows: number) => Promise<void>;
   kill: (id: number) => Promise<void>;
@@ -70,10 +84,12 @@ export function subscribeTerminalOutput(
 export const useTerminalStore = create<TerminalStore>((set, get) => ({
   sessions: [],
   activeId: null,
+  shells: [],
+  shellsLoaded: false,
 
-  create: async (root, name, cols, rows) => {
+  create: async (root, name, shell, cols, rows) => {
     try {
-      const id = await createTerminal(root, cols, rows);
+      const id = await createTerminal(root, shell, cols, rows);
       const sessionName = name ?? `终端 ${id}`;
       set((s) => ({
         sessions: [...s.sessions, { id, name: sessionName, closed: false }],
@@ -83,6 +99,17 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
     } catch (e) {
       console.error("创建终端失败:", e);
       return null;
+    }
+  },
+
+  loadShells: async () => {
+    if (get().shellsLoaded) return;
+    set({ shellsLoaded: true });
+    try {
+      const shells = await listTerminalShells();
+      set({ shells });
+    } catch (e) {
+      console.error("探测可用 Shell 失败:", e);
     }
   },
 
@@ -123,6 +150,18 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
     });
   },
 }));
+
+/**
+ * 解析默认 Shell：优先取设置中记住的 terminalShell（不可用则回退探测列表第一项）。
+ * 首次调用会触发一次 Shell 探测；供命令面板「新建终端」等非组件场景复用。
+ */
+export async function resolveDefaultShell(): Promise<{ id?: string; name: string }> {
+  const t = useTerminalStore.getState();
+  if (!t.shellsLoaded) await t.loadShells();
+  const saved = useSettingsStore.getState().terminalShell;
+  const found = t.shells.find((s) => s.id === saved) ?? t.shells[0];
+  return { id: found?.id, name: found?.name ?? "PowerShell" };
+}
 
 /** terminal:output / terminal:closed 事件订阅（App 挂载时安装一次） */
 export function setupTerminalListeners(): () => void {

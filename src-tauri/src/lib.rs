@@ -16,7 +16,10 @@ use git::{
 };
 use search::search_workspace;
 use symbols::find_workspace_symbols;
-use terminal::{create_terminal, kill_terminal, reap_terminal, resize_terminal, write_terminal};
+use terminal::{
+    create_terminal, kill_terminal, list_terminal_shells, reap_terminal, resize_terminal,
+    write_terminal,
+};
 use vsix::{
     install_vsix, install_vsix_bytes, list_extensions, pick_vsix_dialog, read_extension_file,
     read_extension_file_bytes, uninstall_extension,
@@ -260,6 +263,13 @@ pub struct Settings {
     pub theme: String,
     pub font_size: u32,
     pub auto_save: String,
+    /// 终端默认 Shell id（FR-06，如 powershell/cmd/gitbash/pwsh/wsl）
+    #[serde(default = "default_terminal_shell")]
+    pub terminal_shell: String,
+}
+
+fn default_terminal_shell() -> String {
+    "powershell".to_string()
 }
 
 impl Default for Settings {
@@ -268,6 +278,7 @@ impl Default for Settings {
             theme: "dark-plus".to_string(),
             font_size: 14,
             auto_save: "off".to_string(),
+            terminal_shell: default_terminal_shell(),
         }
     }
 }
@@ -376,6 +387,7 @@ pub fn run() {
             search_workspace,
             find_workspace_symbols,
             create_terminal,
+            list_terminal_shells,
             write_terminal,
             resize_terminal,
             kill_terminal,

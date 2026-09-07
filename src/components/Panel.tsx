@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { Plus, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Check, ChevronDown, Plus, X } from "lucide-react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { useAppStore } from "../store";
@@ -9,6 +9,7 @@ import {
   useTerminalStore,
 } from "../terminalStore";
 import { useSettingsStore } from "../settingsStore";
+import type { TerminalShell } from "../tauri";
 
 /**
  * 底部面板（ConPTY 升级）：xterm.js 全功能交互终端 + 多标签 + ANSI 彩色渲染。
@@ -194,13 +195,37 @@ export default function Panel() {
   const setActive = useTerminalStore((s) => s.setActive);
   const kill = useTerminalStore((s) => s.kill);
   const create = useTerminalStore((s) => s.create);
+  const shells = useTerminalStore((s) => s.shells);
+  const shellsLoaded = useTerminalStore((s) => s.shellsLoaded);
+  const loadShells = useTerminalStore((s) => s.loadShells);
+  const terminalShell = useSettingsStore((s) => s.terminalShell);
+  const updateSetting = useSettingsStore((s) => s.update);
+  const [shellMenuOpen, setShellMenuOpen] = useState(false);
 
-  // 终端仅在面板打开期间挂载；首次打开自动建一个会话
+  // 默认 Shell：设置中记住的 id 仍在本机探测结果内则用之，否则回退第一项（未探测到则后端默认 PowerShell）
+  const defaultShell = shells.find((s) => s.id === terminalShell) ?? shells[0];
+  const defaultShellName = defaultShell?.name ?? "PowerShell";
+
+  // 面板打开时探测一次可用 Shell（新建/自动创建以此为准）
   useEffect(() => {
-    if (panelOpen && sessions.length === 0 && workspaceRoot) {
-      void create(workspaceRoot, "PowerShell 1");
+    if (panelOpen) void loadShells();
+  }, [panelOpen, loadShells]);
+
+  // 终端仅在面板打开期间挂载；首次打开自动建一个会话（等 Shell 探测完成，保证 Shell 类型正确）
+  useEffect(() => {
+    if (panelOpen && shellsLoaded && sessions.length === 0 && workspaceRoot) {
+      void create(workspaceRoot, `${defaultShellName} 1`, defaultShell?.id);
     }
-  }, [panelOpen, sessions.length, workspaceRoot, create]);
+  }, [panelOpen, shellsLoaded, sessions.length, workspaceRoot, create, defaultShell, defaultShellName]);
+
+  /** 从下拉中选择 Shell：记为默认（settings.json）并立即创建一个该 Shell 的会话 */
+  const selectShell = (s: TerminalShell) => {
+    setShellMenuOpen(false);
+    updateSetting({ terminalShell: s.id });
+    if (workspaceRoot) {
+      void create(workspaceRoot, `${s.name} ${sessions.length + 1}`, s.id);
+    }
+  };
 
   if (!panelOpen) return null;
 
@@ -232,16 +257,57 @@ export default function Panel() {
           </div>
         ))}
         <button
-          title="新建终端"
+          title={`新建终端（${defaultShellName}）`}
           onClick={() => {
             if (workspaceRoot) {
-              void create(workspaceRoot, `PowerShell ${sessions.length + 1}`);
+              void create(
+                workspaceRoot,
+                `${defaultShellName} ${sessions.length + 1}`,
+                defaultShell?.id,
+              );
             }
           }}
           className="ml-1 flex h-5 w-5 items-center justify-center rounded text-[var(--aluka-text-dim)] hover:bg-[var(--aluka-hover)] hover:text-[var(--aluka-text)]"
         >
           <Plus size={14} />
         </button>
+        <div className="relative">
+          <button
+            title="选择 Shell 类型（Git Bash / CMD / PowerShell 等）"
+            onClick={() => setShellMenuOpen((o) => !o)}
+            className="flex h-5 w-5 items-center justify-center rounded text-[var(--aluka-text-dim)] hover:bg-[var(--aluka-hover)] hover:text-[var(--aluka-text)]"
+          >
+            <ChevronDown size={14} />
+          </button>
+          {shellMenuOpen && (
+            <>
+              {/* 全屏透明遮罩：点击外部关闭菜单 */}
+              <div className="fixed inset-0 z-40" onClick={() => setShellMenuOpen(false)} />
+              <div className="absolute left-0 top-6 z-50 min-w-[180px] rounded-md border border-[var(--aluka-border)] bg-[var(--aluka-overlay-bg)] py-1 shadow-2xl">
+                {shells.map((s) => (
+                  <button
+                    key={s.id}
+                    title={s.path ?? s.name}
+                    onClick={() => selectShell(s)}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[var(--aluka-text)] hover:bg-[var(--aluka-hover)]"
+                  >
+                    <span className="flex w-3.5 shrink-0 justify-center">
+                      {defaultShell?.id === s.id && (
+                        <Check size={12} className="text-[var(--aluka-statusbar-bg)]" />
+                      )}
+                    </span>
+                    <span>{s.name}</span>
+                  </button>
+                ))}
+                {shells.length === 0 && (
+                  <div className="px-3 py-1.5 text-[12px] text-[var(--aluka-text-dim)]">
+                    未探测到可用 Shell
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
         <button
           title="关闭面板 (Ctrl+~)"
           onClick={togglePanel}

@@ -9,7 +9,7 @@ import { applyTheme, allThemes, getTheme } from "./theme";
  */
 export interface Settings extends UserSettings {}
 
-const DEFAULTS: Settings = { theme: "dark-plus", fontSize: 14, autoSave: "off" };
+const DEFAULTS: Settings = { theme: "dark-plus", fontSize: 14, autoSave: "off", terminalShell: "powershell" };
 const LS_KEY = "aluka.settings";
 
 interface SettingsStore extends Settings {
@@ -18,7 +18,7 @@ interface SettingsStore extends Settings {
 }
 
 function snapshot(s: Settings): Settings {
-  return { theme: s.theme, fontSize: s.fontSize, autoSave: s.autoSave };
+  return { theme: s.theme, fontSize: s.fontSize, autoSave: s.autoSave, terminalShell: s.terminalShell };
 }
 
 /** 双写：localStorage 镜像（秒开兜底）+ 后端 settings.json */

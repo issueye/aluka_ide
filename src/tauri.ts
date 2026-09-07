@@ -64,6 +64,8 @@ export interface UserSettings {
   theme: string;
   fontSize: number;
   autoSave: "off" | "afterDelay";
+  /** 终端默认 Shell id（powershell/cmd/gitbash/pwsh/wsl 等，由后端探测） */
+  terminalShell: string;
 }
 
 /** 读取持久化设置 */
@@ -140,13 +142,28 @@ export async function findWorkspaceSymbols(
   });
 }
 
-/** 创建终端会话，返回会话 id（输出经 terminal:output 事件流式回传） */
+/** 终端 Shell 候选（后端 list_terminal_shells 探测结果） */
+export interface TerminalShell {
+  id: string;
+  /** 展示名（终端标签命名用） */
+  name: string;
+  /** 可执行文件绝对路径（PowerShell/CMD 等系统内建为 null） */
+  path: string | null;
+}
+
+/** 列出本机可用 Shell（终端面板选择下拉用） */
+export async function listTerminalShells(): Promise<TerminalShell[]> {
+  return invoke<TerminalShell[]>("list_terminal_shells");
+}
+
+/** 创建终端会话，shell 为 Shell id（缺省 = 后端默认 PowerShell）；输出经 terminal:output 事件流式回传 */
 export async function createTerminal(
   root: string,
+  shell?: string,
   cols?: number,
   rows?: number,
 ): Promise<number> {
-  return invoke<number>("create_terminal", { root, cols, rows });
+  return invoke<number>("create_terminal", { root, shell: shell ?? null, cols, rows });
 }
 
 /** 向终端写入原始按键数据/控制序列 */

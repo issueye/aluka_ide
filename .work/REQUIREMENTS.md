@@ -47,7 +47,7 @@ VS Code 功能全面但资源占用高（安装包 90MB+、冷启动慢、内存
 | FR-03 | 资源管理器 | 打开文件夹（系统对话框）；目录树懒加载；新建文件/文件夹、重命名、删除、刷新；文件变更监听自动刷新 | P0 | 万级文件目录首屏 ≤ 500ms；CRUD 后树即时反映 |
 | FR-04 | 编辑器 | Monaco 编辑器；多标签页；脏标记；保存(Ctrl+S)/另存为；常见 20+ 语言语法高亮；文件内查找替换；大文件保护；**分屏多编辑器组**（向右/向下拆分、拖拽调节、可关闭组） | P0 | 修改→保存落盘；>5MB 提示只读，>20MB 拒绝打开；分屏后两组独立标签/视图态 |
 | FR-05 | 全局搜索 | 工作区文本搜索：大小写/整词/正则开关；结果按文件分组、点击跳转 | P1 | 1000 文件内搜索 < 2s；结果上限截断提示 |
-| FR-06 | 终端面板 | ConPTY 原生伪控制台 + xterm 交互终端；多会话标签；默认 PowerShell（Windows）；ANSI 真彩/TUI/Tab 补全；动态 resize；Ctrl+` 开关 | P1 | 可执行常规命令并实时回显；vim 等 TUI 可交互；窗口缩放不乱版 |
+| FR-06 | 终端面板 | ConPTY 原生伪控制台 + xterm 交互终端；多会话标签；多 Shell（PowerShell/CMD/Git Bash/pwsh/WSL 按本机探测列出，选择结果记忆为默认）；ANSI 真彩/TUI/Tab 补全；动态 resize；Ctrl+` 开关 | P1 | 可执行常规命令并实时回显；vim 等 TUI 可交互；窗口缩放不乱版 |
 | FR-07 | 命令面板 | Ctrl+Shift+P 命令、Ctrl+P 快速打开文件、Ctrl+G 转到行；子序列模糊匹配；最近使用置顶 | P0 | 所有核心命令可从面板触达 |
 | FR-08 | 快捷键 | 核心集（保存/关闭标签/切换侧栏/面板/命令面板等）；允许扩展注册 | P0 | 核心集按键全部生效且不与输入冲突 |
 | FR-09 | 主题引擎 | 内置 Dark+ / Light+；加载 VS Code 主题 JSON（`colors`→UI CSS 变量、`tokenColors`→Monaco rules） | P1 | 任一纯配色 VS Code 主题插件加载后 UI+编辑器配色生效 |
@@ -168,3 +168,4 @@ VS Code API 面积极大（数百个 API + Node.js 运行时），"完全兼容"
 | 2026-09-03 | v0.2.4 | 扩展优化批次（T10）：VSIX 在线安装改原始 IPC 载荷（Raw body 直传，防 JSON 数组膨胀）+ 下载进度百分比；市场更新检测（isNewerVersion）与一键升级按钮；卸载热清理（命令/主题/片段 provider 即时反注册）；片段触发去掉硬编码字符；本地 VSIX 安装即时激活；README 相对图片 base64 内联渲染（新命令 read_extension_file_bytes，零外联） |
 | 2026-09-03 | v0.2.5 | 新增 FR-20 代码跳转（文本级）：Rust `find_workspace_symbols` 定义模式索引（按扩展名应用各语言定义正则，跳过重目录/隐藏目录/大文件，结果上限截断）；前端转到定义（F12 / Ctrl+点击）/查找所有引用（Shift+F12）/工作区符号面板（Ctrl+T）；多候选列表选择、命中定位行列；`workspace:changed` 失效重建。§6 范围外措辞同步（LSP 语义级导航仍范围外） |
 | 2026-09-07 | v0.2.6 | FR-20 跳转重构（参考 VS Code 导航设计）+ 预览标签页：多定义/引用改编辑器内 Peek 浮层（跳转逻辑拆出 navigation.ts/navigationStore.ts/PeekView.tsx，jump 面板模式移除）；新增后退/前进（Alt+←/→）跳转历史栈、查看定义 Peek（Alt+F12）、光标处符号同词高亮（Monaco wordHighlighter 贡献，纯文本词匹配无 LSP）；引用升级列级定位；新增预览标签语义（EditorTab.preview，对齐 VS Code enablePreview：单击斜体预览、未修改原位替换、变脏/双击/「保持打开」转常驻）。FR-20 措辞同步 |
+| 2026-09-07 | v0.2.7 | FR-06 终端多 Shell：新增 `list_terminal_shells` 本机探测（Git Bash 三级探测：注册表 GitForWindows / PATH git.exe 逐级上溯 / 常见安装路径；pwsh 经 PATH；WSL 需已装发行版），`create_terminal` 增加 shell 参数（目标不可用回退 PowerShell；零新增 Cargo 依赖，注册表走 reg.exe 子进程）；终端标签栏新增 Shell 下拉选择器（选中即创建会话并记忆为默认），默认 Shell 持久化 settings.json（新增 terminalShell 字段，serde default 兼容旧配置）；命令面板「新建终端」「运行活动文件」跟随默认 Shell |
