@@ -45,7 +45,7 @@ VS Code 功能全面但资源占用高（安装包 90MB+、冷启动慢、内存
 | FR-01 | 窗口框架 | 自定义标题栏（`decorations=false`）、最小化 / 最大化 / 关闭、拖拽移动、双击最大化 | P0 | 三键可用；拖拽顺滑；无系统白边 |
 | FR-02 | 布局 Shell | 活动栏 + 侧边栏 + 编辑器组 + 底部面板 + 状态栏；各区域可折叠/伸缩 | P0 | 布局对照 VS Code Dark+ 走查通过 |
 | FR-03 | 资源管理器 | 打开文件夹（系统对话框）；目录树懒加载；新建文件/文件夹、重命名、删除、刷新；文件变更监听自动刷新 | P0 | 万级文件目录首屏 ≤ 500ms；CRUD 后树即时反映 |
-| FR-04 | 编辑器 | Monaco 编辑器；多标签页；脏标记；保存(Ctrl+S)/另存为；常见 20+ 语言语法高亮；文件内查找替换；大文件保护；**分屏多编辑器组**（向右/向下拆分、拖拽调节、可关闭组） | P0 | 修改→保存落盘；>5MB 提示只读，>20MB 拒绝打开；分屏后两组独立标签/视图态 |
+| FR-04 | 编辑器 | Monaco 编辑器；多标签页；脏标记；保存(Ctrl+S)/另存为；常见 20+ 语言语法高亮；文件内查找替换；大文件保护；**分屏多编辑器组**（向右/向下拆分、拖拽调节、可关闭组）；**外部变更自动刷新**（打开的文件被外部修改时未变脏直接重载；变脏弹冲突选择；外部删除提示保留/关闭标签） | P0 | 修改→保存落盘；>5MB 提示只读，>20MB 拒绝打开；分屏后两组独立标签/视图态；外部修改/冲突/删除三场景正确 |
 | FR-05 | 全局搜索 | 工作区文本搜索：大小写/整词/正则开关；结果按文件分组、点击跳转 | P1 | 1000 文件内搜索 < 2s；结果上限截断提示 |
 | FR-06 | 终端面板 | ConPTY 原生伪控制台 + xterm 交互终端；多会话标签；多 Shell（PowerShell/CMD/Git Bash/pwsh/WSL 按本机探测列出，选择结果记忆为默认）；ANSI 真彩/TUI/Tab 补全；动态 resize；Ctrl+` 开关 | P1 | 可执行常规命令并实时回显；vim 等 TUI 可交互；窗口缩放不乱版 |
 | FR-07 | 命令面板 | Ctrl+Shift+P 命令、Ctrl+P 快速打开文件、Ctrl+G 转到行；子序列模糊匹配；最近使用置顶 | P0 | 所有核心命令可从面板触达 |
@@ -53,7 +53,7 @@ VS Code 功能全面但资源占用高（安装包 90MB+、冷启动慢、内存
 | FR-09 | 主题引擎 | 内置 Dark+ / Light+；加载 VS Code 主题 JSON（`colors`→UI CSS 变量、`tokenColors`→Monaco rules）；**动态语言高亮（2026-09-07 增强）**：用户可经「管理语言高亮」命令添加 Monarch tokenizer JSON 自定义语言（ID/显示名/扩展名/语法），运行时注册 Monaco + 扩展名映射，持久化 `~/.aluka-ide/languages.json` 重启自动加载 | P1 | 任一纯配色 VS Code 主题插件加载后 UI+编辑器配色生效；添加 Monarch 语法定义后对应扩展名文件按新语言高亮 |
 | FR-10 | 扩展系统 | 见 §5 兼容性分级（L1~L3 为本期） | P1 | 见 §5 各级验收 |
 | FR-11 | 状态栏 | 行:列、语言、编码、EOL、git 分支（点击切换/新建分支、ahead/behind 显示）、通知气泡 | P1 | 打开文件后信息准确；git 仓库内显示分支并可切换 |
-| FR-12 | 设置 | 主题、字号、自动保存等；持久化到 `~/.aluka-ide/settings.json` | P2 | 重启后设置保留 |
+| FR-12 | 设置 | 主题、字号、自动保存等；持久化到 `~/.aluka-ide/settings.json`；**会话恢复**（最近工作区与已打开标签存 localStorage，刷新/重载后自动重开） | P2 | 重启后设置保留；刷新/重载后工作区与标签自动恢复 |
 | FR-13 | 欢迎页 | 未打开工作区 / 未打开文件的空状态引导（打开文件夹、快捷键提示） | P2 | — |
 | FR-14 | i18n | 中/英文案切换 | P2 | — |
 | FR-15 | 源代码管理（Git） | SCM 侧栏：暂存区/工作区两级列表、M/A/D/U/R 状态徽标、暂存/取消暂存/放弃更改、提交框（Ctrl+Enter，空暂存区时自动全量暂存再提交）；变更文件点击开启 Monaco Diff 双栏对比；活动栏未提交数徽标；Ctrl+Shift+G；非仓库工作区可一键 `git init`；push/pull（凭证走系统 git 配置） | P1 | 暂存→提交→状态清零闭环；Diff 双栏正确；分支切换生效 |
@@ -171,3 +171,5 @@ VS Code API 面积极大（数百个 API + Node.js 运行时），"完全兼容"
 | 2026-09-07 | v0.2.7 | FR-06 终端多 Shell：新增 `list_terminal_shells` 本机探测（Git Bash 三级探测：注册表 GitForWindows / PATH git.exe 逐级上溯 / 常见安装路径；pwsh 经 PATH；WSL 需已装发行版），`create_terminal` 增加 shell 参数（目标不可用回退 PowerShell；零新增 Cargo 依赖，注册表走 reg.exe 子进程）；终端标签栏新增 Shell 下拉选择器（选中即创建会话并记忆为默认），默认 Shell 持久化 settings.json（新增 terminalShell 字段，serde default 兼容旧配置）；命令面板「新建终端」「运行活动文件」跟随默认 Shell |
 | 2026-09-07 | v0.2.8 | FR-09 动态语言高亮：突破编译期 24 语言静态表——monaco-setup 新增 `registerMonarchLanguage`（运行时 Monaco 注册：语言 id/扩展名映射/Monarch tokenizer/注释括号配置）；Rust 新增 `get/set_user_languages`（`~/.aluka-ide/languages.json` 原样存取，结构校验在前端）；languageStore（启动加载注册 + 增删 + 持久化）；LanguageManager 弹窗（列表 + 添加表单：ID/显示名/扩展名/Monarch JSON），命令面板「查看 → 管理语言高亮」打开。TextMate grammar（.tmLanguage.json）转 Monarch 属范围外 |
 | 2026-09-07 | v0.2.9 | FR-06 终端体验增强：接入 `@xterm/addon-web-links`（Ctrl+点击 URL）+ Rust `open_external_url`（白名单仅 http/https，rundll32 系统默认浏览器打开）；终端右键菜单（复制选中/粘贴/清空/中断并结束会话=Ctrl+C+kill）；Ctrl+C 键盘中断经 ConPTY 天然直达（SIGINT）；FR-03 资源管理器右键补「复制路径/复制名称」 |
+| 2026-09-08 | v0.2.10 | FR-04 编辑器外部变更自动刷新：`workspace:changed` 负载升级为 `{ path, kind }` 列表；新增 `reloadFile`（干净文件自动重载、脏文件冲突三选、外部删除保留/关闭）；新增「从磁盘重新载入」命令并接入文件菜单与标签右键 |
+| 2026-09-08 | v0.2.11 | 会话恢复：最近工作区根 + 已打开标签持久化到 localStorage，刷新/重载后自动重开；修复外部文件变更触发前端刷新后工作区丢失 |

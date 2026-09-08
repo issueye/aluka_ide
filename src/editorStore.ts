@@ -52,6 +52,13 @@ export interface ClosePrompt {
   groupId: string;
 }
 
+/** 外部变更冲突提示：diskContent 为 null 表示文件已被外部删除 */
+export interface ExternalChangePrompt {
+  path: string;
+  diskContent: string | null;
+  readonly: boolean;
+}
+
 /**
  * 编辑器状态：标签页、编辑器组与脏标记。
  * Monaco model 按文件路径（Uri）缓存于模块级 Map——
@@ -65,6 +72,10 @@ export const viewStates = new Map<string, monaco.editor.ICodeEditorViewState>();
 const loadingPaths = new Set<string>();
 /** Monaco 不可用时的纯文本草稿（降级编辑模式） */
 const fallbackDrafts = new Map<string, string>();
+/** 降级草稿版本号：外部重载后驱动 textarea 重新挂载 */
+const fallbackVersions = new Map<string, number>();
+/** 正在以磁盘内容重载的 Model（抑制 setValue 触发的脏标记） */
+const reloadingPaths = new Set<string>();
 
 function baseName(p: string): string {
   const parts = p.split(/[\\/]/).filter(Boolean);
@@ -77,6 +88,69 @@ export function getDraft(path: string): string {
 
 export function setDraft(path: string, value: string): void {
   fallbackDrafts.set(path, value);
+}
+
+/** 降级草稿当前版本（外部重载时递增，CodeEditor 用 key 触发重挂载） */
+export function getFallbackVersion(path: string): number {
+  return fallbackVersions.get(path) ?? 0;
+}
+
+function bumpFallbackVersion(path: string): void {
+  fallbackVersions.set(path, (fallbackVersions.get(path) ?? 0) + 1);
+}
+
+/** 会话恢复快照：最近打开的编辑器标签（用于开发 HMR/应用重载后自动恢复） */
+export interface EditorSession {
+  paths: string[];
+  activePath: string | null;
+}
+
+const SESSION_KEY = "aluka.lastTabs";
+
+export function saveEditorSession(session: EditorSession): void {
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  } catch {
+    /* localStorage 不可用时静默跳过 */
+  }
+}
+
+export function loadEditorSession(): EditorSession | null {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const obj: unknown = JSON.parse(raw);
+    if (!obj || typeof obj !== "object") return null;
+    const record = obj as { paths?: unknown; activePath?: unknown };
+    const paths = Array.isArray(record.paths)
+      ? record.paths.filter((p): p is string => typeof p === "string")
+      : [];
+    const activePath = typeof record.activePath === "string" ? record.activePath : null;
+    return { paths, activePath };
+  } catch {
+    return null;
+  }
+}
+
+export function clearEditorSession(): void {
+  try {
+    localStorage.removeItem(SESSION_KEY);
+  } catch {
+    /* 忽略 */
+  }
+}
+
+/** 用磁盘内容替换 Model 内容，不产生脏标记（外部刷新/重新加载共用） */
+function replaceModelContent(path: string, content: string): void {
+  const model = models.get(path);
+  if (!model) return;
+  reloadingPaths.add(path);
+  try {
+    model.setValue(content);
+  } finally {
+    reloadingPaths.delete(path);
+  }
+  savedVersionIds.set(path, model.getAlternativeVersionId());
 }
 
 /** 读取文件当前内容（Monaco model 优先，降级模式读草稿） */
@@ -146,6 +220,8 @@ interface EditorStore {
   closePrompt: ClosePrompt | null;
   /** 兼容旧代码判断：待确认关闭的文件路径 */
   closePromptPath: string | null;
+  /** 外部变更冲突/删除提示 */
+  externalChangePrompt: ExternalChangePrompt | null;
   /** Markdown 预览态：已进入预览的标签路径集合 */
   previewPaths: Set<string>;
 
@@ -157,6 +233,7 @@ interface EditorStore {
   openDiff: (path: string, original: string, modified: string, title?: string, targetGroupId?: string) => void;
   closeTab: (path: string, groupId?: string) => boolean;
   resolveClose: (choice: "save" | "discard" | "cancel" | { path: string; choice: "save" | "discard" | "cancel" }) => Promise<void>;
+  resolveExternalChange: (choice: "keep" | "reload" | "overwrite" | "close") => Promise<void>;
   setActiveTab: (path: string, groupId?: string) => void;
   setActive: (path: string) => void;
   setActiveGroup: (groupId: string) => void;
@@ -192,6 +269,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   error: null,
   closePrompt: null,
   closePromptPath: null,
+  externalChangePrompt: null,
   previewPaths: new Set(),
 
   tabs: [],
@@ -259,6 +337,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
         fallbackDrafts.set(path, model.getValue());
         savedVersionIds.set(path, model.getAlternativeVersionId());
         model.onDidChangeContent(() => {
+          if (reloadingPaths.has(path)) return;
           const m = models.get(path);
           if (!m) return;
           const dirty = m.getAlternativeVersionId() !== savedVersionIds.get(path);
@@ -374,6 +453,36 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     if (!prompt || choice === "cancel") return;
     if (choice === "save") await get().save(prompt.path);
     get().forceClose(prompt.path, prompt.groupId);
+  },
+
+  resolveExternalChange: async (choice) => {
+    const prompt = get().externalChangePrompt;
+    set({ externalChangePrompt: null });
+    if (!prompt) return;
+    const { path, diskContent, readonly } = prompt;
+    if (choice === "keep") return;
+    if (choice === "close") {
+      for (const g of [...get().groups]) get().forceClose(path, g.id);
+      return;
+    }
+    if (diskContent === null) return;
+    if (choice === "overwrite") {
+      await get().save(path);
+      return;
+    }
+    // choice === "reload"：以磁盘内容覆盖编辑器，并清掉脏标记
+    replaceModelContent(path, diskContent);
+    fallbackDrafts.set(path, diskContent);
+    bumpFallbackVersion(path);
+    const s = get();
+    const dirtyPaths = new Set(s.dirtyPaths);
+    dirtyPaths.delete(path);
+    const groups = s.groups.map((g) =>
+      g.tabs.some((t) => t.path === path)
+        ? { ...g, tabs: g.tabs.map((t) => (t.path === path ? { ...t, readOnly: readonly } : t)) }
+        : g,
+    );
+    set({ dirtyPaths, groups, ...deriveActiveState(groups, s.activeGroupId) });
   },
 
   setActiveTab: (path, groupId) => {
@@ -615,6 +724,90 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
   isMarkdownPath: (path) => (path ? isMarkdownFile(path) : false),
 }));
+
+/** 用磁盘内容覆盖已打开的编辑器（外部变更自动刷新 / 用户选择重新加载共用） */
+function applyReload(path: string, content: string, readOnly: boolean): void {
+  replaceModelContent(path, content);
+  fallbackDrafts.set(path, content);
+  bumpFallbackVersion(path);
+  const s = useEditorStore.getState();
+  const dirtyPaths = new Set(s.dirtyPaths);
+  dirtyPaths.delete(path);
+  const groups = s.groups.map((g) =>
+    g.tabs.some((t) => t.path === path)
+      ? { ...g, tabs: g.tabs.map((t) => (t.path === path ? { ...t, readOnly } : t)) }
+      : g,
+  );
+  useEditorStore.setState({ dirtyPaths, groups, ...deriveActiveState(groups, s.activeGroupId) });
+}
+
+/**
+ * 磁盘变更 → 编辑器刷新（App 在 workspace:changed 中调用；也可作手动「从磁盘重新载入」）。
+ * 未变脏且内容不同时自动重载；已变脏弹冲突提示；文件被外部删除时弹删除提示。
+ */
+export async function reloadFile(path: string): Promise<void> {
+  const s = useEditorStore.getState();
+  const model = models.get(path);
+  const draft = fallbackDrafts.get(path);
+  const isOpen = s.groups.some((g) => g.tabs.some((t) => t.path === path));
+  if (!model && draft === undefined && !isOpen) return;
+  if (s.externalChangePrompt?.path === path || loadingPaths.has(path)) return;
+
+  loadingPaths.add(path);
+  try {
+    const file = await readFile(path);
+    const current = model ? model.getValue() : draft;
+    // 仅 EOL 不同的文本视为未变，避免 setValue 不改变 EOL 导致的重复刷新
+    if (file.content.replace(/\r\n/g, "\n") === (current ?? "").replace(/\r\n/g, "\n")) {
+      const tab = useEditorStore
+        .getState()
+        .groups.flatMap((g) => g.tabs)
+        .find((t) => t.path === path);
+      if (tab && tab.readOnly !== file.readonly) {
+        const st = useEditorStore.getState();
+        const groups = st.groups.map((g) =>
+          g.tabs.some((t) => t.path === path)
+            ? { ...g, tabs: g.tabs.map((t) => (t.path === path ? { ...t, readOnly: file.readonly } : t)) }
+            : g,
+        );
+        useEditorStore.setState({ groups, ...deriveActiveState(groups, st.activeGroupId) });
+      }
+      return;
+    }
+    if (file.isBinary) {
+      useEditorStore.setState({
+        error: `“${baseName(path)}” 已在外部变为二进制文件，未自动刷新`,
+      });
+      return;
+    }
+    const cur = useEditorStore.getState();
+    if (cur.externalChangePrompt?.path === path) return;
+    if (cur.dirtyPaths.has(path)) {
+      if (!cur.externalChangePrompt) {
+        useEditorStore.setState({
+          externalChangePrompt: { path, diskContent: file.content, readonly: file.readonly },
+        });
+      }
+      return;
+    }
+    applyReload(path, file.content, file.readonly);
+  } catch (e) {
+    const msg = String(e);
+    const deleted = msg.startsWith("路径不是文件");
+    if (deleted && isOpen) {
+      // 文件已被外部删除/移走：已打开的标签给出保留或关闭的选择
+      if (!useEditorStore.getState().externalChangePrompt) {
+        useEditorStore.setState({
+          externalChangePrompt: { path, diskContent: null, readonly: false },
+        });
+      }
+    } else if (isOpen) {
+      useEditorStore.setState({ error: `刷新“${baseName(path)}”失败：${msg}` });
+    }
+  } finally {
+    loadingPaths.delete(path);
+  }
+}
 
 /** 是否为 Markdown 文件（按扩展名判定） */
 function isMarkdownFile(path: string): boolean {

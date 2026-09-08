@@ -1,5 +1,5 @@
 import { useAppStore } from "./store";
-import { useEditorStore } from "./editorStore";
+import { reloadFile, useEditorStore } from "./editorStore";
 import { useGitStore } from "./gitStore";
 import { useSettingsStore } from "./settingsStore";
 import { useTerminalStore, clearTerminalView, resolveDefaultShell } from "./terminalStore";
@@ -456,6 +456,19 @@ export function registerCoreCommands(): void {
       category: "文件",
       keybinding: "ctrl+shift+s",
       run: () => void useEditorStore.getState().saveAllDirty(),
+    },
+    {
+      id: "workbench.action.files.revert",
+      title: "从磁盘重新载入",
+      category: "文件",
+      run: async () => {
+        const path = useEditorStore.getState().activePath;
+        if (!path) {
+          showInfo("当前没有打开的文件");
+          return;
+        }
+        await reloadFile(path);
+      },
     },
     {
       id: "workbench.action.closeActiveEditor",

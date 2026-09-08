@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { watchWorkspace } from "./tauri";
 import { useTreeStore } from "./treeStore";
+import { clearEditorSession } from "./editorStore";
 
 export type SidebarView = "explorer" | "search" | "scm" | "extensions";
 /** 浮层面板类型：命令 / 快速打开文件 / 转到行 / 工作区符号 / 语言管理 */
@@ -10,6 +11,26 @@ export type PaletteKind = "commands" | "files" | "goto" | "symbols" | "languages
 export interface ExplorerRequest {
   kind: "newFile" | "newFolder";
   seq: number;
+}
+
+/** 最近工作区持久化（会话恢复：刷新/重载后自动重开） */
+const WORKSPACE_KEY = "aluka.lastWorkspace";
+
+export function getLastWorkspaceRoot(): string | null {
+  try {
+    return localStorage.getItem(WORKSPACE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function persistWorkspaceRoot(root: string | null): void {
+  try {
+    if (root) localStorage.setItem(WORKSPACE_KEY, root);
+    else localStorage.removeItem(WORKSPACE_KEY);
+  } catch {
+    /* localStorage 不可用时静默跳过 */
+  }
 }
 
 interface AppStore {
@@ -51,12 +72,15 @@ export const useAppStore = create<AppStore>((set, get) => ({
   explorerRequest: null,
   openWorkspace: (root) => {
     set({ workspaceRoot: root, workspaceName: baseName(root), sidebarVisible: true });
+    persistWorkspaceRoot(root);
     // 重置目录树并启动文件监听（异步，不阻塞 UI）
     void useTreeStore.getState().resetTree(root);
     void watchWorkspace(root).catch((e) => console.error("启动文件监听失败:", e));
   },
   closeWorkspace: () => {
     set({ workspaceRoot: null, workspaceName: "" });
+    persistWorkspaceRoot(null);
+    clearEditorSession();
     void useTreeStore.getState().resetTree(null);
   },
   selectView: (view) => {

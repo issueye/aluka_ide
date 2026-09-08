@@ -25,7 +25,7 @@ use vsix::{
     read_extension_file_bytes, uninstall_extension,
 };
 
-use notify::{RecursiveMode, Watcher};
+use notify::{EventKind, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -103,6 +103,24 @@ fn write_file(path: String, content: String) -> Result<(), String> {
 #[derive(Default)]
 pub struct WorkspaceState {
     watcher: Mutex<Option<notify::RecommendedWatcher>>,
+}
+
+/// 工作区文件变更事件（`workspace:changed` 负载，kind 对齐 notify 顶层分类）
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceChange {
+    pub path: String,
+    pub kind: String,
+}
+
+fn change_kind(kind: EventKind) -> &'static str {
+    match kind {
+        EventKind::Create(_) => "create",
+        EventKind::Modify(_) => "modify",
+        EventKind::Remove(_) => "remove",
+        EventKind::Access(_) => "access",
+        EventKind::Any | EventKind::Other => "other",
+    }
 }
 
 /// 启动参数携带的待打开工作区目录，取走即清空。
@@ -227,7 +245,7 @@ fn delete_entry(path: String) -> Result<(), String> {
 }
 
 /// 监听工作区文件变更：每次调用会停掉旧监听并新建；
-/// 事件由汇总线程聚合（300ms 空闲 + 150ms 吸收窗口）后 emit `workspace:changed`（路径列表）。
+/// 事件由汇总线程聚合（300ms 空闲 + 150ms 吸收窗口）后 emit `workspace:changed`（路径 + 类型列表）。
 #[tauri::command]
 fn watch_workspace(
     app: AppHandle,
@@ -252,20 +270,28 @@ fn watch_workspace(
     std::thread::spawn(move || loop {
         match rx.recv_timeout(Duration::from_millis(300)) {
             Ok(Ok(event)) => {
-                let mut paths: Vec<String> = event
+                let kind = change_kind(event.kind);
+                let mut changes: Vec<WorkspaceChange> = event
                     .paths
                     .iter()
-                    .map(|p| p.to_string_lossy().into_owned())
+                    .map(|p| WorkspaceChange {
+                        path: p.to_string_lossy().into_owned(),
+                        kind: kind.to_string(),
+                    })
                     .collect();
                 // 继续吸收 150ms 内的后续事件，合并为一次刷新
                 while let Ok(next) = rx.recv_timeout(Duration::from_millis(150)) {
                     if let Ok(ev) = next {
-                        paths.extend(ev.paths.iter().map(|p| p.to_string_lossy().into_owned()));
+                        let next_kind = change_kind(ev.kind);
+                        changes.extend(ev.paths.iter().map(|p| WorkspaceChange {
+                            path: p.to_string_lossy().into_owned(),
+                            kind: next_kind.to_string(),
+                        }));
                     }
                 }
-                paths.sort();
-                paths.dedup();
-                let _ = app.emit("workspace:changed", paths);
+                changes.sort_by(|a, b| a.path.cmp(&b.path).then(a.kind.cmp(&b.kind)));
+                changes.dedup_by(|a, b| a.path == b.path && a.kind == b.kind);
+                let _ = app.emit("workspace:changed", changes);
             }
             Ok(Err(_)) => continue,
             Err(mpsc::RecvTimeoutError::Timeout) => continue,

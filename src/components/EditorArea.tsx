@@ -12,8 +12,8 @@ import {
 } from "lucide-react";
 import { useAppStore } from "../store";
 import { openFileDialog, openFolderDialog } from "../tauri";
-import type { EditorGroup, EditorTab } from "../editorStore";
-import { useEditorStore } from "../editorStore";
+import type { EditorGroup, EditorTab, ExternalChangePrompt } from "../editorStore";
+import { reloadFile, useEditorStore } from "../editorStore";
 import CodeEditor from "./CodeEditor";
 import DiffEditor from "./DiffEditor";
 import MarkdownPreview from "./MarkdownPreview";
@@ -124,6 +124,7 @@ function Tab({ tab, groupId, isActiveGroup }: { tab: EditorTab; groupId: string;
 
   const MENU: { label: string; action: () => void }[] = [
     ...(tab.preview ? [{ label: "保持打开", action: () => pinTab(tab.path, groupId) }] : []),
+    { label: "从磁盘重新载入", action: () => void reloadFile(tab.path) },
     { label: "关闭", action: () => closeTab(tab.path, groupId) },
     { label: "关闭其他", action: closeOthers },
     { label: "关闭全部", action: closeAll },
@@ -242,6 +243,66 @@ function SaveConfirmDialog({ path }: { path: string }) {
           >
             保存
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ExternalChangeDialog({ prompt }: { prompt: ExternalChangePrompt | null }) {
+  const resolveExternalChange = useEditorStore((s) => s.resolveExternalChange);
+  if (!prompt) return null;
+  const name = prompt.path.split(/[\\/]/).pop() ?? prompt.path;
+  const deleted = prompt.diskContent === null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="w-[440px] rounded-md border border-[var(--aluka-border)] bg-[var(--aluka-overlay-bg)] p-4 shadow-2xl">
+        <div className="mb-2 text-[13px] font-semibold text-[var(--aluka-text)]">
+          {deleted ? "文件已在磁盘上删除" : "文件已在磁盘上更改"}
+        </div>
+        <p className="mb-4 text-[13px] text-[var(--aluka-text-dim)]">
+          {deleted
+            ? `“${name}” 已从磁盘上删除，关闭标签将丢弃未保存的更改。是否保留当前标签？`
+            : `“${name}” 在磁盘上已被外部修改，编辑器中有未保存的更改。`}
+        </p>
+        <div className="flex flex-wrap justify-end gap-2">
+          {deleted ? (
+            <>
+              <button
+                onClick={() => void resolveExternalChange("close")}
+                className="rounded px-3 py-1.5 text-[13px] hover:bg-[var(--aluka-hover)]"
+              >
+                关闭标签
+              </button>
+              <button
+                onClick={() => void resolveExternalChange("keep")}
+                className="rounded bg-[var(--aluka-btn-bg)] px-3 py-1.5 text-[13px] text-white hover:bg-[var(--aluka-btn-hover)]"
+              >
+                保留标签
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => void resolveExternalChange("keep")}
+                className="rounded px-3 py-1.5 text-[13px] hover:bg-[var(--aluka-hover)]"
+              >
+                保留我的更改
+              </button>
+              <button
+                onClick={() => void resolveExternalChange("reload")}
+                className="rounded px-3 py-1.5 text-[13px] hover:bg-[var(--aluka-hover)]"
+              >
+                从磁盘重新加载
+              </button>
+              <button
+                onClick={() => void resolveExternalChange("overwrite")}
+                className="rounded bg-[var(--aluka-btn-bg)] px-3 py-1.5 text-[13px] text-white hover:bg-[var(--aluka-btn-hover)]"
+              >
+                覆盖磁盘更改
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
@@ -433,6 +494,7 @@ export default function EditorArea() {
   const error = useEditorStore((s) => s.error);
   const setError = useEditorStore((s) => s.setError);
   const closePrompt = useEditorStore((s) => s.closePrompt);
+  const externalChangePrompt = useEditorStore((s) => s.externalChangePrompt);
   const openWorkspace = useAppStore((s) => s.openWorkspace);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -524,6 +586,7 @@ export default function EditorArea() {
       )}
 
       {closePrompt && <SaveConfirmDialog path={closePrompt.path} />}
+      {externalChangePrompt && <ExternalChangeDialog prompt={externalChangePrompt} />}
     </section>
   );
 }

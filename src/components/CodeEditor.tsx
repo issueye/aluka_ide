@@ -3,6 +3,7 @@ import monaco, { languageLabel, languageOf } from "../monaco-setup";
 import {
   getModel,
   getDraft,
+  getFallbackVersion,
   setDraft,
   markDirty,
   useEditorStore,
@@ -230,7 +231,7 @@ export default function CodeEditor({ groupId, activePath }: Props) {
   if (monacoFailed) {
     return (
       <textarea
-        key={activePath ?? "empty"}
+        key={`${activePath ?? "empty"}:${activePath ? getFallbackVersion(activePath) : 0}`}
         spellCheck={false}
         defaultValue={activePath ? getDraft(activePath) : ""}
         onFocus={() => useEditorStore.getState().setActiveGroup(groupId)}

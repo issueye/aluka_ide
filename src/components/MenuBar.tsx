@@ -27,6 +27,7 @@ const MENUS: { title: string; items: MenuEntry[] }[] = [
       { label: "关闭文件夹", commandId: "workbench.action.closeFolder" },
       { label: "保存", commandId: "workbench.action.files.save", separatorBefore: true },
       { label: "全部保存", commandId: "workbench.action.files.saveAll" },
+      { label: "从磁盘重新载入", commandId: "workbench.action.files.revert" },
       { label: "关闭编辑器", commandId: "workbench.action.closeActiveEditor", separatorBefore: true },
       { label: "关闭所有编辑器", commandId: "workbench.action.closeAllEditors" },
       { label: "退出", commandId: "workbench.action.quit", separatorBefore: true },
