@@ -12,7 +12,7 @@ import {
 } from "./navigation";
 import { showInfo } from "./notificationStore";
 import { getActiveEditor } from "./activeEditor";
-import { openFolderDialog } from "./tauri";
+import { openFileDialog, openFolderDialog } from "./tauri";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import pkg from "../package.json";
 
@@ -428,6 +428,17 @@ export function registerCoreCommands(): void {
       run: () => {
         const { activePath, save } = useEditorStore.getState();
         if (activePath) void save(activePath);
+      },
+    },
+    {
+      id: "workbench.action.files.openFile",
+      title: "打开文件…",
+      category: "文件",
+      keybinding: "ctrl+o",
+      run: async () => {
+        const p = await openFileDialog();
+        // 常驻方式打开（preview=false）：纯文件视图不因后续预览标签被替换
+        if (p) await useEditorStore.getState().openFile(p, undefined, { preview: false });
       },
     },
     {

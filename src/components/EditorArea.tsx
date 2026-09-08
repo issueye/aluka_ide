@@ -11,7 +11,7 @@ import {
   GitCompare,
 } from "lucide-react";
 import { useAppStore } from "../store";
-import { openFolderDialog } from "../tauri";
+import { openFileDialog, openFolderDialog } from "../tauri";
 import type { EditorGroup, EditorTab } from "../editorStore";
 import { useEditorStore } from "../editorStore";
 import CodeEditor from "./CodeEditor";
@@ -42,7 +42,13 @@ function Kbd({ k, t }: { k: string; t: string }) {
   );
 }
 
-function Welcome({ onOpenFolder }: { onOpenFolder: () => void }) {
+function Welcome({
+  onOpenFolder,
+  onOpenFile,
+}: {
+  onOpenFolder: () => void;
+  onOpenFile: () => void;
+}) {
   const workspaceRoot = useAppStore((s) => s.workspaceRoot);
   return (
     <div className="flex flex-1 items-center justify-center">
@@ -63,12 +69,20 @@ function Welcome({ onOpenFolder }: { onOpenFolder: () => void }) {
           </div>
           <div className="flex flex-col gap-2.5">
             <span className="mb-1 text-[13px] font-semibold">开始</span>
-            <button
-              onClick={onOpenFolder}
-              className="self-start rounded bg-[var(--aluka-btn-bg)] px-3 py-1.5 text-[13px] text-white hover:bg-[var(--aluka-btn-hover)]"
-            >
-              打开文件夹
-            </button>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={onOpenFile}
+                className="self-start rounded bg-[var(--aluka-btn-bg)] px-3 py-1.5 text-[13px] text-white hover:bg-[var(--aluka-btn-hover)]"
+              >
+                打开文件…
+              </button>
+              <button
+                onClick={onOpenFolder}
+                className="self-start rounded bg-[var(--aluka-btn-bg)] px-3 py-1.5 text-[13px] text-white hover:bg-[var(--aluka-btn-hover)]"
+              >
+                打开文件夹
+              </button>
+            </div>
             <span className="text-[12px] text-[var(--aluka-text-dim)]">
               {workspaceRoot ? `已打开：${workspaceRoot}` : "尚未打开工作区"}
             </span>
@@ -238,10 +252,12 @@ function EditorGroupView({
   group,
   isSingle,
   onOpenFolder,
+  onOpenFile,
 }: {
   group: EditorGroup;
   isSingle: boolean;
   onOpenFolder: () => void;
+  onOpenFile: () => void;
 }) {
   const activeGroupId = useEditorStore((s) => s.activeGroupId);
   const splitGroup = useEditorStore((s) => s.splitGroup);
@@ -340,7 +356,7 @@ function EditorGroupView({
           <CodeEditor groupId={group.id} activePath={group.activePath} />
         )
       ) : isSingle ? (
-        <Welcome onOpenFolder={onOpenFolder} />
+        <Welcome onOpenFolder={onOpenFolder} onOpenFile={onOpenFile} />
       ) : (
         <div className="flex flex-1 items-center justify-center text-[13px] text-[var(--aluka-text-dim)] select-none">
           点击侧栏文件在该组打开
@@ -429,6 +445,16 @@ export default function EditorArea() {
     }
   };
 
+  const pickFile = async () => {
+    try {
+      const p = await openFileDialog();
+      // 常驻方式打开：纯文件视图下标签不因预览替换被清掉
+      if (p) await useEditorStore.getState().openFile(p, undefined, { preview: false });
+    } catch {
+      /* 忽略：用户取消等 */
+    }
+  };
+
   const isSplit = groups.length > 1 && layoutDirection !== "single";
 
   return (
@@ -449,7 +475,12 @@ export default function EditorArea() {
 
       {/* 编辑器组布局 */}
       {!isSplit ? (
-        <EditorGroupView group={groups[0]} isSingle={true} onOpenFolder={() => void pickFolder()} />
+        <EditorGroupView
+          group={groups[0]}
+          isSingle={true}
+          onOpenFolder={() => void pickFolder()}
+          onOpenFile={() => void pickFile()}
+        />
       ) : (
         <div
           className={`flex min-h-0 min-w-0 flex-1 ${
@@ -464,7 +495,12 @@ export default function EditorArea() {
             }
             className="flex min-h-0 min-w-0 flex-col"
           >
-            <EditorGroupView group={groups[0]} isSingle={false} onOpenFolder={() => void pickFolder()} />
+            <EditorGroupView
+              group={groups[0]}
+              isSingle={false}
+              onOpenFolder={() => void pickFolder()}
+              onOpenFile={() => void pickFile()}
+            />
           </div>
 
           <Splitter direction={layoutDirection} containerRef={containerRef} />
@@ -477,7 +513,12 @@ export default function EditorArea() {
             }
             className="flex min-h-0 min-w-0 flex-col"
           >
-            <EditorGroupView group={groups[1]} isSingle={false} onOpenFolder={() => void pickFolder()} />
+            <EditorGroupView
+              group={groups[1]}
+              isSingle={false}
+              onOpenFolder={() => void pickFolder()}
+              onOpenFile={() => void pickFile()}
+            />
           </div>
         </div>
       )}

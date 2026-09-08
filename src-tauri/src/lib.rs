@@ -115,6 +115,17 @@ fn take_pending_workspace(state: tauri::State<'_, PendingWorkspace>) -> Option<S
     state.0.lock().ok()?.take()
 }
 
+/// 启动参数携带的待打开文件（无目录参数时才生效），取走即清空。
+/// 文件视图不建立工作区（纯单文件视图，仿 VS Code `code <file>`）。
+#[derive(Default)]
+pub struct PendingFile(Mutex<Option<String>>);
+
+/// 前端初始化时取走待打开文件；无文件参数返回 null。
+#[tauri::command]
+fn take_pending_file(state: tauri::State<'_, PendingFile>) -> Option<String> {
+    state.0.lock().ok()?.take()
+}
+
 /// 打开系统文件夹选择对话框；取消返回 None。
 /// rfd 对话框不能阻塞主线程，放入 blocking 线程池执行。
 #[tauri::command]
@@ -123,6 +134,20 @@ async fn open_folder_dialog() -> Result<Option<String>, String> {
         rfd::FileDialog::new()
             .set_title("选择工作区文件夹")
             .pick_folder()
+            .map(|p| p.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| format!("对话框任务失败: {e}"))
+}
+
+/// 打开系统文件选择对话框（菜单「打开文件…」）；取消返回 None。
+/// 只开文件、不建立工作区（纯单文件视图）。
+#[tauri::command]
+async fn open_file_dialog() -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        rfd::FileDialog::new()
+            .set_title("打开文件")
+            .pick_file()
             .map(|p| p.to_string_lossy().into_owned())
     })
     .await
@@ -478,21 +503,32 @@ async fn get_git_branch(root: String) -> Result<Option<String>, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // 以项目目录作为第一个位置参数拉起本应用；
-    // 跳过 "-" 开头的选项，取第一个确实存在的目录，非法路径直接忽略。
-    let pending_workspace = std::env::args_os()
+    // 启动参数解析：目录优先——取第一个存在的目录作为工作区（M10，保持既有语义）；
+    // 没有目录参数时取第一个存在的文件作为待打开文件（纯文件视图，不建立工作区）。
+    // 跳过 "-" 开头的选项，非法路径直接忽略。
+    let args: Vec<String> = std::env::args_os()
         .skip(1)
         .filter(|a| !a.to_string_lossy().starts_with('-'))
         .map(|a| a.to_string_lossy().trim_matches('"').to_string())
-        .find(|p| !p.is_empty() && Path::new(p).is_dir());
+        .filter(|p| !p.is_empty())
+        .collect();
+    let pending_workspace = args.iter().find(|p| Path::new(p).is_dir()).cloned();
+    let pending_file = if pending_workspace.is_none() {
+        args.iter().find(|p| Path::new(p).is_file()).cloned()
+    } else {
+        None
+    };
 
     tauri::Builder::default()
         .manage(PendingWorkspace(Mutex::new(pending_workspace)))
+        .manage(PendingFile(Mutex::new(pending_file)))
         .manage(WorkspaceState::default())
         .manage(terminal::TerminalState::default())
         .invoke_handler(tauri::generate_handler![
             take_pending_workspace,
+            take_pending_file,
             open_folder_dialog,
+            open_file_dialog,
             read_dir,
             create_entry,
             rename_entry,

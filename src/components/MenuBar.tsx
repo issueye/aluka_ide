@@ -22,7 +22,8 @@ const MENUS: { title: string; items: MenuEntry[] }[] = [
     items: [
       { label: "新建文本文件", commandId: "workbench.action.files.new" },
       { label: "新建文件夹", commandId: "workbench.action.files.newFolder" },
-      { label: "打开文件夹…", commandId: "workbench.action.files.openFolder", separatorBefore: true },
+      { label: "打开文件…", commandId: "workbench.action.files.openFile", separatorBefore: true },
+      { label: "打开文件夹…", commandId: "workbench.action.files.openFolder" },
       { label: "关闭文件夹", commandId: "workbench.action.closeFolder" },
       { label: "保存", commandId: "workbench.action.files.save", separatorBefore: true },
       { label: "全部保存", commandId: "workbench.action.files.saveAll" },

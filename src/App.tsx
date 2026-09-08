@@ -18,7 +18,7 @@ import { useEditorStore } from "./editorStore";
 import { loadExtensions } from "./extHost/registry";
 import { scheduleTreeRefresh } from "./treeStore";
 import { useSymbolsStore } from "./symbolsStore";
-import { takePendingWorkspace } from "./tauri";
+import { takePendingFile, takePendingWorkspace } from "./tauri";
 
 export default function App() {
   const sidebarVisible = useAppStore((s) => s.sidebarVisible);
@@ -40,13 +40,21 @@ export default function App() {
     };
   }, []);
 
-  // 外部目录参数：取走后作为工作区打开
+  // 外部启动参数：目录参数 → 作为工作区打开（M10）；否则文件参数 → 纯文件视图打开（不建工作区）
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
         const pending = await takePendingWorkspace();
-        if (pending && !cancelled) useAppStore.getState().openWorkspace(pending);
+        if (pending && !cancelled) {
+          useAppStore.getState().openWorkspace(pending);
+          return;
+        }
+        const pendingFile = await takePendingFile();
+        // 常驻方式打开（preview=false），避免后续预览标签把它替换掉
+        if (pendingFile && !cancelled) {
+          await useEditorStore.getState().openFile(pendingFile, undefined, { preview: false });
+        }
       } catch {
         // 纯浏览器 dev 下无 Tauri IPC，忽略
       }

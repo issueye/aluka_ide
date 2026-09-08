@@ -16,6 +16,16 @@ export async function takePendingWorkspace(): Promise<string | null> {
   return invoke<string | null>("take_pending_workspace");
 }
 
+/** 取走启动参数携带的待打开文件（无目录参数时生效，纯文件视图） */
+export async function takePendingFile(): Promise<string | null> {
+  return invoke<string | null>("take_pending_file");
+}
+
+/** 弹出系统文件选择对话框（菜单「打开文件…」）；取消返回 null */
+export async function openFileDialog(): Promise<string | null> {
+  return invoke<string | null>("open_file_dialog");
+}
+
 /** 读取目录的单层子项（已按目录优先、名称排序，重目录已过滤） */
 export async function readDir(path: string): Promise<FileNode[]> {
   return invoke<FileNode[]>("read_dir", { path });
