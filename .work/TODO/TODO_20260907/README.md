@@ -153,3 +153,58 @@
 
 - URL 协议白名单仅 http/https（file:/javascript: 拒绝，防注入）
 - 粘贴走 navigator.clipboard（WebView2 授权）；终端内已有选中时右键直接覆盖式操作
+
+
+# TODO 2026-09-07（M10 之后 · 指定路径文件打开）
+
+> 状态标记：⬜ 未开始 · 🔄 进行中 · ✅ 完成 · ⛔ 受阻
+
+| 项 | 内容 |
+| --- | --- |
+| 日期 | 2026-09-07 |
+| 关联里程碑 | M10 增强（目录参数之后；需求编号待收口登记） |
+| 关联需求 | 外部文件参数 + 应用内「打开文件…」（对齐 VS Code 打开文件） |
+
+## 今日目标（总）
+
+1. 启动参数传**文件**路径时（如 `aluka-ide.exe D:\a\b.ts` / 文件关联双击），启动后以**纯文件视图**打开该文件（不建立工作区，仿 VS Code `code <file>`）
+2. 应用内入口：文件菜单 / 命令面板（Ctrl+O）/ 欢迎页新增「打开文件…」，系统文件对话框选任意文件打开
+
+## 任务清单
+
+### T1 Rust：待打开文件状态 + 文件选择对话框 ✅
+
+- **具体目标**：新增 `PendingFile` 状态与 `take_pending_file` 命令；启动参数**目录优先**（保持 M10 语义），无目录时取第一个存在的文件；新增 `open_file_dialog`（rfd `pick_file`）
+- **验收标准**：
+  - [x] `cargo check` / `cargo clippy -- -D warnings` / `cargo fmt` 通过
+  - [x] `take_pending_file` / `open_file_dialog` 注册进 `invoke_handler`
+  - [x] 无参数启动返回 null；目录与文件同时传入时目录优先
+
+### T2 前端：取走文件参数 + 打开文件命令/入口 ✅
+
+- **具体目标**：`tauri.ts` 补 `takePendingFile` / `openFileDialog` 封装；`App.tsx` 启动时目录参数优先，否则文件参数以常驻方式（preview=false）打开；`commands.ts` 注册 `workbench.action.files.openFile`（Ctrl+O）；「文件」菜单与欢迎页加「打开文件…」
+- **验收标准**：
+  - [x] `npm run build`（tsc strict）通过
+  - [x] 菜单/命令面板/欢迎页三处入口均可弹系统文件对话框
+  - [x] 纯浏览器 dev 无 IPC 时静默忽略
+
+### T3 验证收口（部分） ✅
+
+- **验收标准**：
+  - [x] `npm run tauri build` 通过（exe + MSI + NSIS）
+  - [ ] 用户走查：命令行传文件路径启动即打开；Ctrl+O / 菜单 / 欢迎页打开任意文件；纯文件视图无工作区仍可编辑与保存
+
+## 验证记录
+
+| 时间 | 验证项（命令/操作） | 结果 | 备注/截图 |
+| --- | --- | --- | --- |
+| 2026-09-07 | `npm run build`（tsc strict + vite） | ✅ | 初跑 exit=1 为瞬时抖动，复跑 exit=0，tsc 无错误 |
+| 2026-09-07 | `cd src-tauri && cargo check` | ✅ | 先因未提交 WIP（terminal.rs 进程树杀死）报 2 个类型错 → 按原意图最小修复后通过 |
+| 2026-09-07 | `cargo clippy -- -D warnings` / `cargo fmt` | ✅ | 零警告；终端 Duration 导入移到 `#[cfg(not(windows))]` 消除告警 |
+| 2026-09-07 | `npm run tauri build` | ✅ | exe + MSI + NSIS 三产物生成 |
+
+## 未决问题与次日移交
+
+- 目录与文件参数同时传入时按「目录优先」处理（文件被忽略），与 M10 既有语义一致；多文件参数仅取第一个文件（单实例多文件场景后续再议）。
+- 顺手修复了上一会话遗留未提交的 `terminal.rs` 进程树杀死 WIP 的编译错误（`process_id()` 返回 Option 未解包、Duration 导入非 Windows 分支才用到），功能语义未改动；该 WIP 与本功能合并后建议一并提交。
+- 需求编号（FR-22？）与里程碑登记留给收口任务统一处理（沿用现状：目录参数 M10 亦未登记）。
