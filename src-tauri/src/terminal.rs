@@ -8,6 +8,8 @@ use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::Mutex;
+#[cfg(not(windows))]
+use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
 /// 终端输出/关闭事件（AGENTS.md 事件名约定：terminal:output / terminal:closed）
@@ -395,23 +397,53 @@ pub fn resize_terminal(
         .map_err(|e| format!("调整终端尺寸失败: {e}"))
 }
 
-/// 关闭终端会话
+/// 递归杀死整个进程树（Windows 用 taskkill /T，Unix 用 kill 负 PID 发至进程组）。
+fn kill_process_tree(pid: u32) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = std::process::Command::new("taskkill")
+            .args(["/F", "/T", "/PID", &pid.to_string()])
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+            .output();
+    }
+    #[cfg(not(windows))]
+    {
+        // 负 PID 发信号至进程组（portable-pty 创建子进程时默认设 setpgid）
+        let _ = std::process::Command::new("kill")
+            .args(["-TERM", &format!("-{pid}")])
+            .output();
+        // 等 500ms 让子进程有机会优雅退出，仍未退出的强制 SIGKILL
+        std::thread::sleep(Duration::from_millis(500));
+        let _ = std::process::Command::new("kill")
+            .args(["-KILL", &format!("-{pid}")])
+            .output();
+    }
+}
+
+/// 关闭终端会话（同时杀死进程树中的所有子进程）。
 #[tauri::command]
 pub fn kill_terminal(state: tauri::State<'_, TerminalState>, id: u32) -> Result<(), String> {
     let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
     if let Some(mut session) = sessions.remove(&id) {
-        let _ = session.child.kill();
+        // process_id 为 Option：None（已退出）时无进程树可杀
+        if let Some(pid) = session.child.process_id() {
+            // 先杀死整个进程树（含子进程），再清理僵尸
+            kill_process_tree(pid);
+        }
         let _ = session.child.wait();
     }
     Ok(())
 }
 
-/// 会话退出后清理残留表项
+/// 会话退出后清理残留表项（同时杀死进程树中的残留子进程）。
 #[tauri::command]
 pub fn reap_terminal(state: tauri::State<'_, TerminalState>, id: u32) -> Result<(), String> {
     let mut sessions = state.sessions.lock().map_err(|e| e.to_string())?;
     if let Some(mut session) = sessions.remove(&id) {
-        let _ = session.child.kill();
+        if let Some(pid) = session.child.process_id() {
+            kill_process_tree(pid);
+        }
         let _ = session.child.wait();
     }
     Ok(())
