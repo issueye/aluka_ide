@@ -1,6 +1,10 @@
 // 核心 API（不含任何语言服务/语言 worker，符合 NFR-06 离线 + R2 轻量取舍）
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api";
 
+// codicon 图标字体（查找/替换、折叠等控件图标；ESM 按需模式不会自动带样式，
+// 缺失时字形占位符按系统字体渲染成方框）。ttf 由 Vite 随 CSS 打包进 dist。
+import "monaco-editor/esm/vs/base/browser/ui/codicons/codiconStyles.js";
+
 // 菜单「编辑/选择」命令依赖的编辑器 contrib（按需导入，不用 editor.all 全量）：
 // 剪贴板剪切/复制/粘贴、查找/替换、行/块注释、多光标、智能选择
 import "monaco-editor/esm/vs/editor/contrib/clipboard/browser/clipboard.js";

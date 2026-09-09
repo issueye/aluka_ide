@@ -101,6 +101,17 @@
   - [x] `npm run tauri dev` 人工走查：活动栏入口、过滤、展开文件、Diff、加载更多、非仓库空态（用户侧运行产物确认无问题）
   - [x] 对抗性 code-reviewer 审查结论闭环（无严重缺陷；中 1-4 + 轻 6/8/9 已修，见验证记录与未决问题）
 
+### T8 修复单元内查找图标显示为方框（当日追加）✅
+
+- **具体目标**：编辑器 Ctrl+F 查找控件中「上一个/下一个/替换/关闭」等图标渲染为方框（codicon 字体缺失）。
+- **根因**：monaco-setup 采用 ESM 按需导入（`editor.api` + 单个 contrib JS），Monaco 的图标字体样式入口 `codiconStyles.js` 不会被自动引入；dist 无 `codicon.ttf`，`.codicon-*` 字形占位符回退系统字体显示为方框。
+- **改动**：`src/monaco-setup.ts` 增一行 `import "monaco-editor/esm/vs/base/browser/ui/codicons/codiconStyles.js"`（Vite 自动把 `codicon.ttf` 随 CSS 打包）。
+- **验收标准**：
+  - [x] `npm run build` 后 dist 含 `assets/codicon-*.ttf`（78.5KB）且主 CSS 含 `@font-face codicon`
+  - [x] release exe 冒烟启动正常（PID 驻留、工作集 23.1MB）
+  - [x] `npx tsc --noEmit` 通过
+  - [x] 用户侧确认查找控件图标正常显示（不再出现方框）
+
 ## 验证记录
 
 | 时间 | 验证项（命令/操作） | 结果 | 备注/截图 |
@@ -131,6 +142,7 @@
 | 2026-09-09 | code-reviewer 只读对抗审查（GitHistoryView / git.rs / editorStore / MenuBar 等 9 文件） | ✅ 完成 | 无严重缺陷；中 4 项：①详情拉取失败无重试死路 ②单飞守卫吞掉在途时的展开请求 ③切工作区 + limit≠100 早退绕过 seq 竞态防护 ④openDiff 复用标签不刷新标题（对比基准错位）；轻 6/8/9：完整哈希不可搜、浅克隆边界被误判为根提交、lossy 先于 NUL 切分损坏路径 |
 | 2026-09-09 | 审查修复复跑：`cargo test`（14 例）/ clippy -D warnings / fmt / `npm run build` | ✅ 通过 | 修复：详情并发拉取 + 失败行内重试、seq 立即作废 + 刷新提前、detail 增 parent_hash 契约（rev-list --parents 判定父，浅克隆缺对象如实报错不装空树）、-z 解析改字节级（非 UTF-8 路径跳过）、Diff 复用标签同步名称、过滤含完整哈希、查询态可用「加载更多」、查看菜单补「提交记录」入口 |
 | 2026-09-09 | `npm run tauri build`（FR-21 等 4 笔提交后重新出包） | ✅ 通过 | release 3m19s；exe 11.09MB / MSI 4.43MB / NSIS 3.20MB（NFR-01 ≤25MB 达标） |
+| 2026-09-09 | T8 单元内查找图标修复：`npm run build` 后核对 dist 含 `codicon-*.ttf`（78.5KB）且主 CSS 有 `@font-face codicon`；release exe 冒烟启动正常 | ✅ 通过 | 根因：ESM 按需导入未引 codicon 字体样式；修复：monaco-setup 增 `codiconStyles.js` 导入（Vite 自动打包 ttf），图标字形回归正常 |
 
 ## 未决问题与次日移交
 
