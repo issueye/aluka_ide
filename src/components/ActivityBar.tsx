@@ -1,4 +1,4 @@
-import { Blocks, Files, GitFork, Search, Settings, UserRound } from "lucide-react";
+import { Blocks, Files, GitFork, Search, Settings } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppStore } from "../store";
 import { useGitStore } from "../gitStore";
@@ -45,12 +45,6 @@ export default function ActivityBar() {
         );
       })}
       <div className="mt-auto flex flex-col pb-1">
-        <button
-          title="账号（未实现）"
-          className="flex h-12 w-12 items-center justify-center text-[var(--aluka-activity-fg)] hover:text-[var(--aluka-activity-active)]"
-        >
-          <UserRound size={22} strokeWidth={1.5} />
-        </button>
         <button
           title="管理（未实现）"
           className="flex h-12 w-12 items-center justify-center text-[var(--aluka-activity-fg)] hover:text-[var(--aluka-activity-active)]"

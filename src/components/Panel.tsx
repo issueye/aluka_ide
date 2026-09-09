@@ -3,7 +3,8 @@ import { Check, ChevronDown, Copy, Plus, Scissors, Square, X } from "lucide-reac
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { useAppStore } from "../store";
+import { PANEL_MIN, panelMax, useAppStore } from "../store";
+import ResizeHandle from "./ResizeHandle";
 import {
   registerTerminalClearHook,
   subscribeTerminalOutput,
@@ -277,6 +278,10 @@ function TerminalView({ id, visible }: TerminalViewProps) {
 export default function Panel() {
   const panelOpen = useAppStore((s) => s.panelOpen);
   const togglePanel = useAppStore((s) => s.togglePanel);
+  const panelHeight = useAppStore((s) => s.panelHeight);
+  const setPanelHeight = useAppStore((s) => s.setPanelHeight);
+  const resetPanelHeight = useAppStore((s) => s.resetPanelHeight);
+  const sectionRef = useRef<HTMLElement>(null);
   const workspaceRoot = useAppStore((s) => s.workspaceRoot);
   const sessions = useTerminalStore((s) => s.sessions);
   const activeId = useTerminalStore((s) => s.activeId);
@@ -318,7 +323,22 @@ export default function Panel() {
   if (!panelOpen) return null;
 
   return (
-    <section className="flex h-64 shrink-0 flex-col border-t border-[var(--aluka-border)] bg-[var(--aluka-panel-bg)]">
+    <>
+      <ResizeHandle
+        targetRef={sectionRef}
+        side="top"
+        min={PANEL_MIN}
+        max={panelMax}
+        value={panelHeight}
+        onSize={setPanelHeight}
+        onReset={resetPanelHeight}
+        title="拖拽调整控制台高度（双击重置）"
+      />
+      <section
+        ref={sectionRef}
+        style={{ height: panelHeight }}
+        className="flex shrink-0 flex-col bg-[var(--aluka-panel-bg)]"
+      >
       <div className="flex h-9 shrink-0 select-none items-center border-b border-[var(--aluka-border)] px-2">
         {sessions.map((t) => (
           <div
@@ -414,11 +434,12 @@ export default function Panel() {
           ))}
         </div>
       ) : (
-        <div className="flex flex-1 items-center justify-center text-[12px] text-[var(--aluka-text-dim)]">
+        <div className="flex min-h-0 flex-1 items-center justify-center text-[12px] text-[var(--aluka-text-dim)]">
           {workspaceRoot ? "点击 + 新建终端会话" : "打开工作区后可使用终端"}
         </div>
       )}
-    </section>
+      </section>
+    </>
   );
 }
 

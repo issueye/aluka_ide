@@ -9,7 +9,7 @@ import StatusBar from "./components/StatusBar";
 import CommandPalette from "./components/CommandPalette";
 import LanguageManager from "./components/LanguageManager";
 import Notifications from "./components/Notifications";
-import { getLastWorkspaceRoot, useAppStore } from "./store";
+import { clampLayoutToViewport, getLastWorkspaceRoot, useAppStore } from "./store";
 import { installKeybindingHub, registerCoreCommands } from "./commands";
 import { loadSettings, useSettingsStore } from "./settingsStore";
 import { setupTerminalListeners } from "./terminalStore";
@@ -111,6 +111,15 @@ export default function App() {
     if (!sessionReadyRef.current) return;
     persistCurrentSession();
   }, [groups, activePath]);
+
+  // 窗口尺寸变化（缩放/最大化/换显示器）后，把侧栏与面板尺寸重新收敛回可用范围，
+  // 否则之前拖大的面板（shrink-0）会把编辑器区挤没甚至顶出窗口。
+  useEffect(() => {
+    clampLayoutToViewport();
+    const onResize = () => clampLayoutToViewport();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   // 自动保存（FR-12 autoSave=afterDelay）：脏文件变化后静默 800ms 全量落盘
   const autoSave = useSettingsStore((s) => s.autoSave);
