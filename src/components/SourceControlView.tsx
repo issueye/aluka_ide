@@ -40,6 +40,24 @@ function splitPath(fullPath: string): { fileName: string; dirPath: string } {
   };
 }
 
+/** 待二次确认的"放弃所有更改"清单：拆分为已跟踪/未跟踪两类 */
+interface DiscardAllTarget {
+  tracked: string[];
+  untracked: string[];
+}
+
+/** 生成"放弃所有更改"确认弹窗的警示文案 */
+function discardAllDescription(target: DiscardAllTarget): string {
+  const parts: string[] = [];
+  if (target.tracked.length > 0) {
+    parts.push(`将还原 ${target.tracked.length} 个已跟踪文件的更改（恢复为 HEAD 版本）`);
+  }
+  if (target.untracked.length > 0) {
+    parts.push(`将删除 ${target.untracked.length} 个未跟踪文件（从磁盘永久删除）`);
+  }
+  return `${parts.join("，")}。此操作不可撤销，确定放弃所有更改吗？`;
+}
+
 export default function SourceControlView() {
   const workspaceRoot = useAppStore((s) => s.workspaceRoot);
   const {
@@ -60,6 +78,7 @@ export default function SourceControlView() {
 
   const [stagedCollapsed, setStagedCollapsed] = useState(false);
   const [changesCollapsed, setChangesCollapsed] = useState(false);
+  const [discardAllTarget, setDiscardAllTarget] = useState<DiscardAllTarget | null>(null);
 
   // 初始化与定时刷新
   useEffect(() => {
@@ -125,6 +144,28 @@ export default function SourceControlView() {
   const handleCommit = async () => {
     if (!commitMessage.trim() || loading) return;
     await commit(workspaceRoot);
+  };
+
+  /** 点击"放弃所有更改"：弹出二次确认（不立即执行） */
+  const requestDiscardAll = () => {
+    const tracked = unstagedList
+      .filter((f) => f.status !== "U")
+      .map((f) => f.path);
+    const untracked = unstagedList
+      .filter((f) => f.status === "U")
+      .map((f) => f.path);
+    if (tracked.length === 0 && untracked.length === 0) return;
+    // 快照待放弃清单，确认后按此执行，避免执行期间列表变化造成误删
+    setDiscardAllTarget({ tracked, untracked });
+  };
+
+  /** 弹窗确认后执行放弃所有更改 */
+  const confirmDiscardAll = async () => {
+    const target = discardAllTarget;
+    if (!target || loading) return;
+    setDiscardAllTarget(null);
+    if (target.tracked.length > 0) await discard(workspaceRoot, target.tracked, false);
+    if (target.untracked.length > 0) await discard(workspaceRoot, target.untracked, true);
   };
 
   return (
@@ -282,14 +323,7 @@ export default function SourceControlView() {
                   title="放弃所有更改"
                   onClick={(e) => {
                     e.stopPropagation();
-                    const tracked = unstagedList
-                      .filter((f) => f.status !== "U")
-                      .map((f) => f.path);
-                    const untracked = unstagedList
-                      .filter((f) => f.status === "U")
-                      .map((f) => f.path);
-                    if (tracked.length > 0) void discard(workspaceRoot, tracked, false);
-                    if (untracked.length > 0) void discard(workspaceRoot, untracked, true);
+                    requestDiscardAll();
                   }}
                   className="flex h-5 w-5 items-center justify-center rounded hover:bg-[var(--aluka-active)] hover:text-[var(--aluka-text)]"
                 >
@@ -363,6 +397,40 @@ export default function SourceControlView() {
           )}
         </div>
       </div>
+
+      {/* 放弃所有更改 — 二次确认弹窗 */}
+      {discardAllTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-[400px] rounded-md border border-[var(--aluka-border)] bg-[var(--aluka-overlay-bg)] p-4 shadow-2xl">
+            <div className="mb-2 flex items-center gap-2 text-[13px] font-semibold">
+              <RotateCcw size={14} className="text-[#f48771]" />
+              <span className="text-[var(--aluka-text)]">放弃所有更改</span>
+              <span className="ml-auto rounded-full bg-[var(--aluka-active)] px-1.5 py-0.5 text-[10px] font-normal text-[var(--aluka-text-dim)]">
+                {discardAllTarget.tracked.length + discardAllTarget.untracked.length} 个文件
+              </span>
+            </div>
+            <p className="mb-4 text-[13px] leading-relaxed text-[var(--aluka-text-dim)]">
+              {discardAllDescription(discardAllTarget)}
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setDiscardAllTarget(null)}
+                disabled={loading}
+                className="rounded px-3 py-1.5 text-[13px] text-[var(--aluka-text)] hover:bg-[var(--aluka-hover)] disabled:opacity-50"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => void confirmDiscardAll()}
+                disabled={loading}
+                className="rounded bg-[var(--aluka-btn-bg)] px-3 py-1.5 text-[13px] font-medium text-white hover:bg-[var(--aluka-btn-hover)] disabled:opacity-50"
+              >
+                确认放弃
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
