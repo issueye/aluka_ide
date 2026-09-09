@@ -51,8 +51,10 @@ function Welcome({
 }) {
   const workspaceRoot = useAppStore((s) => s.workspaceRoot);
   return (
-    <div className="flex flex-1 items-center justify-center">
-      <div className="flex flex-col items-center gap-4 select-none">
+    // overflow-auto + 内层 m-auto：空间不足时欢迎页可滚动，不会溢出遮挡底部面板
+    // （用 margin:auto 而非 items-center 居中，避免 flex 居中溢出时顶部内容被裁切且无法滚到）
+    <div className="flex min-h-0 flex-1 overflow-auto">
+      <div className="m-auto flex flex-col items-center gap-4 select-none">
         <div className="flex items-center gap-3">
           <CodeXml size={56} strokeWidth={1.2} className="text-[#0098ff]" />
           <h1 className="text-4xl font-light tracking-wide">Aluka IDE</h1>
@@ -332,10 +334,11 @@ function EditorGroupView({
   const isActiveGroup = activeGroupId === group.id;
   const activeIsMarkdown = isMarkdownPath(group.activePath);
 
+  // overflow-hidden：组内内容（欢迎页/编辑器）再高也不得绘制到下方底部面板之上
   return (
     <div
       onClick={() => setActiveGroup(group.id)}
-      className={`relative flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--aluka-bg)] ${
+      className={`relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--aluka-bg)] ${
         !isSingle && isActiveGroup ? "ring-1 ring-inset ring-[#0078d4]/40" : ""
       }`}
     >
@@ -419,7 +422,7 @@ function EditorGroupView({
       ) : isSingle ? (
         <Welcome onOpenFolder={onOpenFolder} onOpenFile={onOpenFile} />
       ) : (
-        <div className="flex flex-1 items-center justify-center text-[13px] text-[var(--aluka-text-dim)] select-none">
+        <div className="flex min-h-0 flex-1 items-center justify-center text-[13px] text-[var(--aluka-text-dim)] select-none">
           点击侧栏文件在该组打开
         </div>
       )}

@@ -61,5 +61,6 @@ export default function DiffEditor({ path, original, modified }: DiffEditorProps
     }
   }, [theme]);
 
-  return <div ref={containerRef} className="h-full w-full overflow-hidden" />;
+  // flex-1 + min-h-0：作为编辑器组的 flex 子项只占剩余高度（h-full 会算上标签栏高度而溢出到面板上）
+  return <div ref={containerRef} className="min-h-0 w-full flex-1 overflow-hidden" />;
 }

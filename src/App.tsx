@@ -157,7 +157,8 @@ export default function App() {
       <div className="flex min-h-0 flex-1">
         <ActivityBar />
         {sidebarVisible && <SideBar />}
-        <main className="flex min-w-0 flex-1 flex-col">
+        {/* min-h-0：允许编辑器区随面板挤压，否则内容会溢出到面板之上 */}
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
           <EditorArea />
           {panelOpen && <Panel />}
         </main>
