@@ -130,6 +130,7 @@
 | 2026-09-09 | `npm run tauri dev` 人工走查（T7：活动栏入口/过滤/展开/Diff/加载更多/空态） | ⛔ 未执行 | 本环境无法常驻 dev server / 拉起 Tauri 窗口，需用户侧确认 |
 | 2026-09-09 | code-reviewer 只读对抗审查（GitHistoryView / git.rs / editorStore / MenuBar 等 9 文件） | ✅ 完成 | 无严重缺陷；中 4 项：①详情拉取失败无重试死路 ②单飞守卫吞掉在途时的展开请求 ③切工作区 + limit≠100 早退绕过 seq 竞态防护 ④openDiff 复用标签不刷新标题（对比基准错位）；轻 6/8/9：完整哈希不可搜、浅克隆边界被误判为根提交、lossy 先于 NUL 切分损坏路径 |
 | 2026-09-09 | 审查修复复跑：`cargo test`（14 例）/ clippy -D warnings / fmt / `npm run build` | ✅ 通过 | 修复：详情并发拉取 + 失败行内重试、seq 立即作废 + 刷新提前、detail 增 parent_hash 契约（rev-list --parents 判定父，浅克隆缺对象如实报错不装空树）、-z 解析改字节级（非 UTF-8 路径跳过）、Diff 复用标签同步名称、过滤含完整哈希、查询态可用「加载更多」、查看菜单补「提交记录」入口 |
+| 2026-09-09 | `npm run tauri build`（FR-21 等 4 笔提交后重新出包） | ✅ 通过 | release 3m19s；exe 11.09MB / MSI 4.43MB / NSIS 3.20MB（NFR-01 ≤25MB 达标） |
 
 ## 未决问题与次日移交
 
