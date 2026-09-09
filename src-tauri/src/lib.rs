@@ -11,8 +11,9 @@ pub mod vsix;
 
 /// 子模块命令在 generate_handler 中需以裸名引用（宏可见性）
 use git::{
-    git_checkout, git_commit, git_create_branch, git_discard, git_get_file_content, git_init,
-    git_list_branches, git_pull, git_push, git_stage, git_status, git_unstage,
+    git_checkout, git_commit, git_commit_detail, git_create_branch, git_discard,
+    git_get_file_content, git_init, git_list_branches, git_log, git_pull, git_push, git_stage,
+    git_status, git_unstage,
 };
 use search::search_workspace;
 use symbols::find_workspace_symbols;
@@ -588,6 +589,8 @@ pub fn run() {
             git_list_branches,
             git_checkout,
             git_create_branch,
+            git_commit_detail,
+            git_log,
             git_push,
             git_pull,
             git_init,

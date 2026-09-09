@@ -65,6 +65,7 @@ const MENUS: { title: string; items: MenuEntry[] }[] = [
       { label: "资源管理器", commandId: "workbench.view.explorer", separatorBefore: true },
       { label: "搜索", commandId: "workbench.view.search" },
       { label: "源代码管理", commandId: "workbench.view.scm" },
+      { label: "提交记录", commandId: "workbench.view.history" },
       { label: "扩展", commandId: "workbench.view.extensions" },
       { label: "切换侧边栏", commandId: "workbench.action.toggleSidebarVisibility", separatorBefore: true },
       { label: "切换底部面板", commandId: "workbench.action.togglePanel" },

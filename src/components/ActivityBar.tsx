@@ -1,4 +1,4 @@
-import { Blocks, Files, GitFork, Search, Settings } from "lucide-react";
+import { Blocks, Files, GitFork, History, Search, Settings } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppStore } from "../store";
 import { useGitStore } from "../gitStore";
@@ -8,6 +8,7 @@ const TOP_ITEMS: { view: SidebarView; icon: LucideIcon; title: string }[] = [
   { view: "explorer", icon: Files, title: "资源管理器 (Ctrl+Shift+E)" },
   { view: "search", icon: Search, title: "搜索 (Ctrl+Shift+F)" },
   { view: "scm", icon: GitFork, title: "源代码管理 (Ctrl+Shift+G)" },
+  { view: "history", icon: History, title: "提交记录 (Git 历史)" },
   { view: "extensions", icon: Blocks, title: "扩展 (Ctrl+Shift+X)" },
 ];
 

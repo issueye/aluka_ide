@@ -2,6 +2,7 @@ import { useRef } from "react";
 import Explorer from "./Explorer";
 import SearchView from "./SearchView";
 import SourceControlView from "./SourceControlView";
+import GitHistoryView from "./GitHistoryView";
 import ExtensionsView from "./ExtensionsView";
 import ResizeHandle from "./ResizeHandle";
 import { SIDEBAR_MIN, sidebarMax, useAppStore } from "../store";
@@ -12,6 +13,7 @@ const TITLES: Record<SidebarView, string> = {
   search: "搜索",
   scm: "源代码管理",
   extensions: "扩展",
+  history: "提交记录",
 };
 
 export default function SideBar() {
@@ -35,6 +37,7 @@ export default function SideBar() {
           {activeView === "explorer" && <Explorer />}
           {activeView === "search" && <SearchView />}
           {activeView === "scm" && <SourceControlView />}
+          {activeView === "history" && <GitHistoryView />}
           {activeView === "extensions" && <ExtensionsView />}
         </div>
       </aside>

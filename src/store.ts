@@ -3,7 +3,7 @@ import { watchWorkspace } from "./tauri";
 import { useTreeStore } from "./treeStore";
 import { clearEditorSession } from "./editorStore";
 
-export type SidebarView = "explorer" | "search" | "scm" | "extensions";
+export type SidebarView = "explorer" | "search" | "scm" | "extensions" | "history";
 /** 浮层面板类型：命令 / 快速打开文件 / 转到行 / 工作区符号 / 语言管理 */
 export type PaletteKind = "commands" | "files" | "goto" | "symbols" | "languages";
 

@@ -604,6 +604,12 @@ export function registerCoreCommands(): void {
       run: () => useAppStore.getState().selectView("scm"),
     },
     {
+      id: "workbench.view.history",
+      title: "提交记录（Git 历史）",
+      category: "查看",
+      run: () => useAppStore.getState().selectView("history"),
+    },
+    {
       id: "git.refresh",
       title: "Git: 刷新",
       category: "Git",

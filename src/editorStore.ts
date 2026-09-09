@@ -408,8 +408,16 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     const existingTab = targetGroup?.tabs.find((t) => t.path === diffPath);
     let nextTabs: EditorTab[];
     if (existingTab) {
+      // 复用同路径标签时同步刷新名称：对比基准可能已变（SCM ↔ 提交前后），标题须与内容一致
       nextTabs = (targetGroup?.tabs ?? []).map((t) =>
-        t.path === diffPath ? { ...t, diffOriginal: original, diffModified: modified } : t,
+        t.path === diffPath
+          ? {
+              ...t,
+              name: diffName,
+              diffOriginal: original,
+              diffModified: modified,
+            }
+          : t,
       );
     } else {
       const newTab: EditorTab = {

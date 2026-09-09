@@ -280,6 +280,52 @@ export async function gitGetFileContent(
   return invoke<string>("git_get_file_content", { root, path, revision });
 }
 
+/* ---------------- 提交记录查询（Git 历史视图） ---------------- */
+
+/** 提交记录条目（git log 每行一条） */
+export interface GitLogEntry {
+  /** 完整提交哈希 */
+  hash: string;
+  /** 短哈希（默认 7 位缩写） */
+  shortHash: string;
+  /** 提交信息首行 */
+  subject: string;
+  /** 作者显示名 */
+  author: string;
+  /** 作者邮箱 */
+  authorEmail: string;
+  /** 作者时间（ISO-8601，含时区偏移） */
+  date: string;
+}
+
+/** 单个提交改动的一个文件 */
+export interface GitCommitFile {
+  /** 仓库相对路径 */
+  path: string;
+  /** 相对首父提交（根提交相对空树）的变更类型："M" | "A" | "D" */
+  status: "M" | "A" | "D";
+}
+
+/** 单个提交的改动清单（供 Diff 双栏对比） */
+export interface GitCommitDetail {
+  /** 首父提交完整哈希；根提交为 null（其"修改前"内容按空处理） */
+  parentHash: string | null;
+  /** 首父提交短哈希（仅展示用；浅克隆缺对象时为哈希前缀） */
+  parentShort: string | null;
+  /** 该提交改动的文件（重命名已拆为 D + A 两项） */
+  files: GitCommitFile[];
+}
+
+/** 查询当前分支（HEAD 回看）的提交记录，limit 收敛到 1..=1000；空仓库返回空数组 */
+export async function gitLog(root: string, limit = 100): Promise<GitLogEntry[]> {
+  return invoke<GitLogEntry[]>("git_log", { root, limit });
+}
+
+/** 查询单个提交相对其首父的改动文件清单 */
+export async function gitCommitDetail(root: string, hash: string): Promise<GitCommitDetail> {
+  return invoke<GitCommitDetail>("git_commit_detail", { root, hash });
+}
+
 /** 列出所有本地分支 */
 export async function gitListBranches(root: string): Promise<string[]> {
   return invoke<string[]>("git_list_branches", { root });

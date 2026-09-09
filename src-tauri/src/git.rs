@@ -477,3 +477,246 @@ pub async fn git_init(root: String) -> Result<(), String> {
     .await
     .map_err(|e| format!("初始化仓库异常: {e}"))?
 }
+
+/* ---------------- 提交记录查询（Git 历史视图） ---------------- */
+
+/// 提交记录条目（git log 每行一条）
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct GitLogEntry {
+    /// 完整提交哈希
+    pub hash: String,
+    /// 短哈希（默认 7 位缩写）
+    pub short_hash: String,
+    /// 提交信息首行
+    pub subject: String,
+    /// 作者显示名
+    pub author: String,
+    /// 作者邮箱
+    pub author_email: String,
+    /// 作者时间（ISO-8601 含时区偏移，%aI 输出）
+    pub date: String,
+}
+
+/// 单个提交改动的一个文件
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCommitFile {
+    /// 仓库相对路径（正斜杠分隔）
+    pub path: String,
+    /// 相对首父提交（根提交相对空树）的变更类型："M" | "A" | "D"
+    pub status: String,
+}
+
+/// 单个提交的改动清单（供 Diff 双栏对比）
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct GitCommitDetail {
+    /// 首父提交完整哈希；根提交为 None（其"修改前"内容按空处理）
+    pub parent_hash: Option<String>,
+    /// 首父提交短哈希（仅展示用；浅克隆父对象缺失时退化为哈希前缀）
+    pub parent_short: Option<String>,
+    /// 该提交改动的文件（--no-renames：重命名拆为 D + A 两项）
+    pub files: Vec<GitCommitFile>,
+}
+
+/// 查询当前分支（HEAD 回看）的提交记录，最多 limit 条（收敛到 1..=1000）。
+/// 空仓库（尚无提交）返回空列表，不视为错误。
+#[tauri::command]
+pub async fn git_log(root: String, limit: u32) -> Result<Vec<GitLogEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let limit = limit.clamp(1, 1000);
+        // 未出生分支/空仓库：rev-parse HEAD 失败 → 空列表，避免各家 git 报错文案差异
+        let head_check = new_git_command()
+            .current_dir(&root)
+            .args(["rev-parse", "--verify", "-q", "HEAD"])
+            .output()
+            .map_err(|e| format!("检查仓库头提交失败: {e}"))?;
+        if !head_check.status.success() {
+            return Ok(Vec::new());
+        }
+        let out = new_git_command()
+            .current_dir(&root)
+            .arg("log")
+            .args(["-n", &limit.to_string()])
+            .arg("--pretty=format:%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%s")
+            .output()
+            .map_err(|e| format!("执行 git log 失败: {e}"))?;
+        if !out.status.success() {
+            return Err(String::from_utf8_lossy(&out.stderr).into_owned());
+        }
+        Ok(parse_log_output(&String::from_utf8_lossy(&out.stdout)))
+    })
+    .await
+    .map_err(|e| format!("提交记录查询异常: {e}"))?
+}
+
+/// 解析 `git log --pretty=format:%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%s` 输出：
+/// 每条提交一行、字段以 \x1f 分隔；空行与字段数不符的残缺行防御性跳过
+fn parse_log_output(output: &str) -> Vec<GitLogEntry> {
+    output
+        .lines()
+        .filter_map(|line| {
+            let fields: Vec<&str> = line.split('\u{1f}').collect();
+            if fields.len() != 6 {
+                return None;
+            }
+            Some(GitLogEntry {
+                hash: fields[0].to_string(),
+                short_hash: fields[1].to_string(),
+                author: fields[2].to_string(),
+                author_email: fields[3].to_string(),
+                date: fields[4].to_string(),
+                subject: fields[5].to_string(),
+            })
+        })
+        .collect()
+}
+
+/// 查询单个提交相对其首父的改动文件清单（根提交相对空树；合并提交只对比第一父）。
+/// 父判定走 `git rev-list --parents`（读提交头即可）：浅克隆边界提交在提交头里有父哈希，
+/// 不能依赖 `rev-parse hash~1` —— 父对象缺失时它失败，会把边界提交误判成根提交；
+/// 此时 `git diff` 会因缺对象如实报错（不假装"空树对比"）。
+#[tauri::command]
+pub async fn git_commit_detail(root: String, hash: String) -> Result<GitCommitDetail, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        // 输出形如 `<hash> <父1> <父2>…`，首个 token 是提交自身
+        let parents_out = new_git_command()
+            .current_dir(&root)
+            .args(["rev-list", "--parents", "-n", "1", &hash])
+            .output()
+            .map_err(|e| format!("解析父提交失败: {e}"))?;
+        if !parents_out.status.success() {
+            return Err(String::from_utf8_lossy(&parents_out.stderr).into_owned());
+        }
+        let parents_line = String::from_utf8_lossy(&parents_out.stdout);
+        let mut tokens = parents_line.split_whitespace();
+        let _self_hash = tokens.next();
+        let parent_hash = tokens.next().map(|p| p.to_string());
+
+        let (parent_short, out) = if let Some(parent) = &parent_hash {
+            // 常规提交：与首父比较；短哈希用于展示，对象缺失时退化为前缀
+            let ps_out = new_git_command()
+                .current_dir(&root)
+                .args(["rev-parse", "--short", parent])
+                .output()
+                .ok();
+            let ps = match ps_out {
+                Some(o) if o.status.success() => {
+                    String::from_utf8_lossy(&o.stdout).trim().to_string()
+                }
+                _ => parent.chars().take(7).collect::<String>(),
+            };
+            let diff_out = new_git_command()
+                .current_dir(&root)
+                .args(["diff", "--name-status", "-z", "--no-renames", parent, &hash])
+                .output()
+                .map_err(|e| format!("执行 git diff 失败: {e}"))?;
+            (Some(ps), diff_out)
+        } else {
+            // 根提交无父：git show 自动以空树为对比基准
+            let show_out = new_git_command()
+                .current_dir(&root)
+                .args([
+                    "show",
+                    "--name-status",
+                    "-z",
+                    "--format=",
+                    "--no-renames",
+                    &hash,
+                ])
+                .output()
+                .map_err(|e| format!("执行 git show 失败: {e}"))?;
+            (None, show_out)
+        };
+        if !out.status.success() {
+            return Err(String::from_utf8_lossy(&out.stderr).into_owned());
+        }
+        let files = parse_name_status_z_output(&out.stdout);
+        Ok(GitCommitDetail {
+            parent_hash,
+            parent_short,
+            files,
+        })
+    })
+    .await
+    .map_err(|e| format!("提交详情查询异常: {e}"))?
+}
+
+/// 解析 `git diff/show --name-status -z` 输出（原始字节）：状态码与路径以 NUL 交替成对。
+/// -z 模式不做路径引用转义，含空格等特殊字符的路径也能还原。
+/// 路径必须是合法 UTF-8 才收下（非 UTF-8 路径无法作为 revspec 回传，跳过避免空对比误导）；
+/// 状态码只看首个字节 M/A/D（R/C 已被 --no-renames 拆解，其余残段防御性跳过）。
+fn parse_name_status_z_output(output: &[u8]) -> Vec<GitCommitFile> {
+    let mut files = Vec::new();
+    for pair in output.split(|&b| b == 0).collect::<Vec<_>>().chunks(2) {
+        if pair.len() < 2 {
+            break; // 尾随 NUL 产生的空 token 无后继
+        }
+        let (code, path) = (pair[0], pair[1]);
+        if path.is_empty() {
+            continue;
+        }
+        let status = match code.first() {
+            Some(b'M') => "M",
+            Some(b'A') => "A",
+            Some(b'D') => "D",
+            _ => continue,
+        };
+        let Ok(path_str) = std::str::from_utf8(path) else {
+            continue;
+        };
+        files.push(GitCommitFile {
+            path: path_str.to_string(),
+            status: status.to_string(),
+        });
+    }
+    files
+}
+
+#[cfg(test)]
+mod log_tests {
+    use super::*;
+
+    #[test]
+    fn log_output_parses_six_fields_per_record() {
+        let out = "98d7d4ac727a4fac1f787c79d6337276bbb30c85\u{1f}98d7d4a\u{1f}issueye\u{1f}issueye@yeah.net\u{1f}2026-09-09T13:21:06+08:00\u{1f}fix: 溢出遮挡\njunk-line-without-separator\n";
+        let entries = parse_log_output(out);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].hash, "98d7d4ac727a4fac1f787c79d6337276bbb30c85");
+        assert_eq!(entries[0].short_hash, "98d7d4a");
+        assert_eq!(entries[0].author, "issueye");
+        assert_eq!(entries[0].author_email, "issueye@yeah.net");
+        assert_eq!(entries[0].date, "2026-09-09T13:21:06+08:00");
+        assert_eq!(entries[0].subject, "fix: 溢出遮挡");
+    }
+
+    #[test]
+    fn log_output_ignores_trailing_empty_lines() {
+        let out = "a\u{1f}b\u{1f}c\u{1f}d\u{1f}e\u{1f}f\n\n";
+        assert_eq!(parse_log_output(out).len(), 1);
+    }
+
+    #[test]
+    fn name_status_z_parses_pairs_and_skips_junk() {
+        let out = b"A\0file one.txt\0M\0src/lib.rs\0D\0\xe6\x97\xa7\xe6\x96\x87\xe4\xbb\xb6.txt\0";
+        let files = parse_name_status_z_output(out);
+        assert_eq!(files.len(), 3);
+        assert_eq!(files[0].status, "A");
+        assert_eq!(files[0].path, "file one.txt");
+        assert_eq!(files[1].status, "M");
+        assert_eq!(files[1].path, "src/lib.rs");
+        assert_eq!(files[2].status, "D");
+        assert_eq!(files[2].path, "旧文件.txt");
+    }
+
+    #[test]
+    fn name_status_z_skips_unknown_codes_and_broken_utf8_paths() {
+        // "C100"（copy）与非法 UTF-8 路径均应跳过，只留合法的 A/M
+        let out = b"C\0copied.txt\0A\0ok.txt\0M\0\xff\xfe\0D\0gone.txt\0";
+        let files = parse_name_status_z_output(out);
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0].path, "ok.txt");
+        assert_eq!(files[1].status, "D");
+    }
+}
