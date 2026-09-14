@@ -938,6 +938,13 @@ export function registerCoreCommands(): void {
         clearTerminalView(t.activeId);
       },
     },
+    {
+      id: "terminal.debugIo",
+      title: "终端 IO 调试",
+      category: "终端",
+      // 唯一入口：打开后活动栏才出现对应图标；关闭请用调试视图标题栏右上角 ×
+      run: () => useAppStore.getState().openTerminalDebug(),
+    },
 
     /* ---------------- 帮助菜单 ---------------- */
     {

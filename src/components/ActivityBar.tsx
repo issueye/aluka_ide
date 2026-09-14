@@ -1,4 +1,4 @@
-import { Blocks, Files, GitFork, History, Search, Settings } from "lucide-react";
+import { Blocks, Bug, Files, GitFork, History, Search, Settings } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useAppStore } from "../store";
 import { useGitStore } from "../gitStore";
@@ -10,17 +10,23 @@ const TOP_ITEMS: { view: SidebarView; icon: LucideIcon; title: string }[] = [
   { view: "scm", icon: GitFork, title: "源代码管理 (Ctrl+Shift+G)" },
   { view: "history", icon: History, title: "提交记录 (Git 历史)" },
   { view: "extensions", icon: Blocks, title: "扩展 (Ctrl+Shift+X)" },
+  { view: "terminalDebug", icon: Bug, title: "终端 IO 调试" },
 ];
 
 export default function ActivityBar() {
   const activeView = useAppStore((s) => s.activeView);
   const selectView = useAppStore((s) => s.selectView);
+  // 终端 IO 调试不是常驻入口：仅在经顶端「终端」菜单打开后显示图标，
+  // 关闭（标题栏 ×）后立即消失；启动时默认不显示。
+  const terminalDebugOpen = useAppStore((s) => s.terminalDebugOpen);
   const gitStatus = useGitStore((s) => s.status);
   const changeCount = (gitStatus?.staged.length ?? 0) + (gitStatus?.unstaged.length ?? 0);
 
+  const items = TOP_ITEMS.filter((i) => i.view !== "terminalDebug" || terminalDebugOpen);
+
   return (
     <aside className="flex w-12 shrink-0 flex-col items-center bg-[var(--aluka-activity-bg)]">
-      {TOP_ITEMS.map(({ view, icon: Icon, title }) => {
+      {items.map(({ view, icon: Icon, title }) => {
         const active = activeView === view;
         return (
           <button

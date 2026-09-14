@@ -2,8 +2,9 @@ import { create } from "zustand";
 import { watchWorkspace } from "./tauri";
 import { useTreeStore } from "./treeStore";
 import { clearEditorSession } from "./editorStore";
+import { resetTerminalDebugConfig } from "./terminalIo";
 
-export type SidebarView = "explorer" | "search" | "scm" | "extensions" | "history";
+export type SidebarView = "explorer" | "search" | "scm" | "extensions" | "history" | "terminalDebug";
 /** 浮层面板类型：命令 / 快速打开文件 / 转到行 / 工作区符号 / 语言管理 */
 export type PaletteKind = "commands" | "files" | "goto" | "symbols" | "languages";
 
@@ -131,6 +132,11 @@ interface AppStore {
   workspaceRoot: string | null;
   workspaceName: string;
   activeView: SidebarView;
+  /**
+   * 终端 IO 调试是否已打开。仅内存态、刻意不持久化：
+   * 每次进入程序活动栏都不显示该入口，必须经顶端「终端」菜单显式打开。
+   */
+  terminalDebugOpen: boolean;
   sidebarVisible: boolean;
   panelOpen: boolean;
   /** 侧栏宽度（px，拖拽调整并持久化） */
@@ -146,6 +152,10 @@ interface AppStore {
   /** 活动栏点击：切换视图；重复点击当前视图时隐藏侧栏（VS Code 行为） */
   selectView: (view: SidebarView) => void;
   toggleSidebar: () => void;
+  /** 顶端菜单入口：打开终端 IO 调试（活动栏图标随之出现） */
+  openTerminalDebug: () => void;
+  /** 调试视图标题栏 ×：彻底关闭（停录 + 复位拦截/改写 + 清空记录）并隐藏活动栏图标 */
+  closeTerminalDebug: () => void;
   togglePanel: () => void;
   /** 设置侧栏宽度（px，越界自动收敛并持久化） */
   setSidebarWidth: (px: number) => void;
@@ -169,6 +179,7 @@ export const useAppStore = create<AppStore>((set, get) => ({
   workspaceRoot: null,
   workspaceName: "",
   activeView: "explorer",
+  terminalDebugOpen: false,
   sidebarVisible: true,
   panelOpen: false,
   sidebarWidth: initialSidebarWidth,
@@ -197,6 +208,21 @@ export const useAppStore = create<AppStore>((set, get) => ({
     }
   },
   toggleSidebar: () => set((s) => ({ sidebarVisible: !s.sidebarVisible })),
+  openTerminalDebug: () =>
+    set({ terminalDebugOpen: true, activeView: "terminalDebug", sidebarVisible: true }),
+  closeTerminalDebug: () => {
+    // 先收尾调试管道（停录 + 复位拦截/改写 + 清空记录），确保关闭后既不影响正常终端输入，
+    // 也不残留已跟踪的 payload
+    resetTerminalDebugConfig();
+    set((s) => ({
+      terminalDebugOpen: false,
+      // 视图正在前台时回落到资源管理器，避免 activeView 停在已关闭的视图上（僵尸态：
+      // 图标已消失，Ctrl+B 一展侧栏却又冒出调试视图）
+      activeView: s.activeView === "terminalDebug" ? "explorer" : s.activeView,
+      // 关闭即整体不显示：视图与侧栏一并收起
+      sidebarVisible: false,
+    }));
+  },
   togglePanel: () => set((s) => ({ panelOpen: !s.panelOpen })),
   // 上限一律走 sidebarMax()/panelMax()：绝对上限之外还要受当前视口约束，
   // 这样双击重置与任何程序化调用都不可能写出「放不下」的尺寸
