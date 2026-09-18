@@ -10,6 +10,7 @@ import {
   type TerminalShell,
 } from "./tauri";
 import { useSettingsStore } from "./settingsStore";
+import { proxyWrite, recordTerminalOutput, setTerminalSendSink, setTerminalSessionAliveCheck, clearTerminalDebugSession } from "./terminalIo";
 
 /**
  * 终端会话状态（ConPTY 升级）：
@@ -50,6 +51,10 @@ const outputListeners = new Map<number, Set<(data: string) => void>>();
 /** 终端视图清空钩子：TerminalView 挂载时登记 xterm.clear，菜单「清空终端」经此触达视图层 */
 const clearHooks = new Map<number, () => void>();
 
+/** 注入终端调试管道的真实发送函数与会话存活检查；模块加载后立即生效 */
+setTerminalSendSink((id, data) => writeTerminal(id, data));
+setTerminalSessionAliveCheck((id) => isTerminalSessionAlive(id));
+
 export function registerTerminalClearHook(id: number, hook: () => void): () => void {
   clearHooks.set(id, hook);
   return () => {
@@ -60,6 +65,15 @@ export function registerTerminalClearHook(id: number, hook: () => void): () => v
 /** 清空指定会话的终端视图（保留当前提示符行） */
 export function clearTerminalView(id: number): void {
   clearHooks.get(id)?.();
+}
+
+/**
+ * 判断终端会话是否仍可发送（terminalIo 手动发送/重发前校验）。
+ * 已退出或已移除的会话不允许继续写入，避免记录显示「已发送」但实际落空。
+ */
+export function isTerminalSessionAlive(id: number): boolean {
+  const s = useTerminalStore.getState();
+  return s.sessions.some((t) => t.id === id && !t.closed);
 }
 
 export function subscribeTerminalOutput(
@@ -114,11 +128,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
   },
 
   write: async (id, data) => {
-    try {
-      await writeTerminal(id, data);
-    } catch (e) {
-      console.error("写入终端失败:", e);
-    }
+    await proxyWrite(id, data);
   },
 
   resize: async (id, cols, rows) => {
@@ -140,6 +150,7 @@ export const useTerminalStore = create<TerminalStore>((set, get) => ({
   setActive: (id) => set({ activeId: id }),
 
   removeLocal: (id) => {
+    clearTerminalDebugSession(id);
     outputListeners.delete(id);
     set((s) => {
       const sessions = s.sessions.filter((t) => t.id !== id);
@@ -172,6 +183,7 @@ export function setupTerminalListeners(): () => void {
     try {
       unlistenOutput = await listen<{ id: number; data: string }>("terminal:output", (e) => {
         const { id, data } = e.payload;
+        recordTerminalOutput(id, data);
         const listeners = outputListeners.get(id);
         if (listeners) {
           for (const cb of listeners) cb(data);
@@ -195,4 +207,5 @@ export function setupTerminalListeners(): () => void {
     for (const fn of unsubs) fn();
   };
 }
+
 

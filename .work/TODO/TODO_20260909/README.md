@@ -112,6 +112,14 @@
   - [x] `npx tsc --noEmit` 通过
   - [x] 用户侧确认查找控件图标正常显示（不再出现方框）
 
+### T9 根目录打包脚本 build.sh ✅
+
+- **具体目标**：根目录新增 `build.sh`，一键完成前端构建（tsc strict + vite）+ Rust release + 安装包（NSIS/MSI）。
+- **实现**：`set -euo pipefail`；自动 `cd` 到脚本所在目录（不依赖调用位置）；未安装前端依赖时先 `npm install`；最终执行 `npm run tauri build`，结束后打印产物路径。
+- **验收标准**：
+  - [x] `build.sh` 位于仓库根目录，bash 语法检查通过（`bash -n`）
+  - [x] 产物路径提示与 README 打包说明一致（`dist/` + `src-tauri/target/release/bundle/`）
+
 ## 验证记录
 
 | 时间 | 验证项（命令/操作） | 结果 | 备注/截图 |
@@ -143,6 +151,7 @@
 | 2026-09-09 | 审查修复复跑：`cargo test`（14 例）/ clippy -D warnings / fmt / `npm run build` | ✅ 通过 | 修复：详情并发拉取 + 失败行内重试、seq 立即作废 + 刷新提前、detail 增 parent_hash 契约（rev-list --parents 判定父，浅克隆缺对象如实报错不装空树）、-z 解析改字节级（非 UTF-8 路径跳过）、Diff 复用标签同步名称、过滤含完整哈希、查询态可用「加载更多」、查看菜单补「提交记录」入口 |
 | 2026-09-09 | `npm run tauri build`（FR-21 等 4 笔提交后重新出包） | ✅ 通过 | release 3m19s；exe 11.09MB / MSI 4.43MB / NSIS 3.20MB（NFR-01 ≤25MB 达标） |
 | 2026-09-09 | T8 单元内查找图标修复：`npm run build` 后核对 dist 含 `codicon-*.ttf`（78.5KB）且主 CSS 有 `@font-face codicon`；release exe 冒烟启动正常 | ✅ 通过 | 根因：ESM 按需导入未引 codicon 字体样式；修复：monaco-setup 增 `codiconStyles.js` 导入（Vite 自动打包 ttf），图标字形回归正常 |
+| 2026-09-09 | `bash -n build.sh` 语法检查 | ✅ 通过 | 新增打包脚本，未改动业务代码 |
 
 ## 未决问题与次日移交
 

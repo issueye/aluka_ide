@@ -104,6 +104,7 @@ const MENUS: { title: string; items: MenuEntry[] }[] = [
       { label: "新建终端", commandId: "terminal.new" },
       { label: "关闭当前终端", commandId: "terminal.killActive" },
       { label: "清空终端", commandId: "terminal.clear" },
+      { label: "终端 IO 调试", commandId: "terminal.debugIo", separatorBefore: true },
     ],
   },
   {
