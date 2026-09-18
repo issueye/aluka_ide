@@ -2,8 +2,8 @@
 
 | 项 | 内容 |
 | --- | --- |
-| 文档版本 | v0.2 |
-| 日期 | 2026-09-03 |
+| 文档版本 | v0.2.13 |
+| 日期 | 2026-09-18 |
 | 关联文档 | [REQUIREMENTS.md](./REQUIREMENTS.md) · [TODO/](./TODO/) · [AGENTS.md](../AGENTS.md) |
 
 ---
@@ -143,3 +143,4 @@
 | 2026-09-08 | v0.2.10 | **FR-04 编辑器外部变更自动刷新**：Rust `workspace:changed` 负载升级为 `{ path, kind }` 列表；前端新增 `reloadFile`（干净自动重载、脏文件冲突三选、外部删除保留/关闭、二进制/超限不误刷），App 事件消费接入；新增「从磁盘重新载入」命令并接入文件菜单与标签右键。质量门：build/clippy/fmt 绿；UI 走查待人工 |
 | 2026-09-08 | v0.2.11 | **会话恢复**：最近工作区根 + 已打开标签持久化到 localStorage，刷新/重载后自动重开（修复外部文件变更触发前端刷新后工作区丢失）；关闭文件夹时清除会话。质量门：build 绿；UI 走查待人工 |
 | 2026-09-09 | v0.2.12 | **FR-21 提交记录（Git 历史）查询**：Rust `git_log`/`git_commit_detail`（git log `\x1f` 单行字段解析；`--name-status -z --no-renames` NUL 成对解析防路径转义；根提交对比空树、合并提交只对比首父；3 例解析单测锁定）；独立侧栏视图 `GitHistoryView`（活动栏「提交记录」入口 + 命令 `workbench.view.history`）：提交列表按提交信息/作者/哈希实时过滤、点击条目展开改动文件清单（M/A/D 徽标）、点击文件打开提交前后 Monaco Diff、「加载更多」100/档扩展至 1000 上限、非仓库空态可一键 git init；`StatusBadge` 抽为共享组件。质量门：npm run build（tsc strict）/cargo check/clippy -D warnings/fmt/cargo test（13 例）全绿；UI 走查待人工 |
+| 2026-09-18 | v0.2.13 | **版本同步 + 需求补登记 + 构建分包**：应用版本号统一升至 v0.2.13（package.json / Cargo.toml / tauri.conf.json 原为 0.1.0，与文档基线脱节）；REQUIREMENTS 补登记 FR-22 终端 IO 调试（2026-09-11 已实现，本次补文档）；vite `manualChunks` 将 Monaco 核心拆为独立 vendor chunk（主应用 chunk 3.17MB→703KB，Monaco 独立长缓存），`chunkSizeWarningLimit` 上调消除噪音告警。质量门：npm run build / cargo check 全绿 |

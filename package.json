@@ -2,7 +2,7 @@
   "name": "aluka-ide",
   "private": true,
   "type": "module",
-  "version": "0.1.0",
+  "version": "0.2.13",
   "description": "轻量级 IDE：Rust + Tauri + React + TailwindCSS，VS Code 观感，兼容 VS Code 插件子集",
   "scripts": {
     "dev": "vite",
