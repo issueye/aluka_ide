@@ -51,13 +51,13 @@ VS Code 功能全面但资源占用高（安装包 90MB+、冷启动慢、内存
 | FR-07 | 命令面板 | Ctrl+Shift+P 命令、Ctrl+P 快速打开文件、Ctrl+G 转到行；子序列模糊匹配；最近使用置顶 | P0 | 所有核心命令可从面板触达 |
 | FR-08 | 快捷键 | 核心集（保存/关闭标签/切换侧栏/面板/命令面板等）；允许扩展注册 | P0 | 核心集按键全部生效且不与输入冲突 |
 | FR-09 | 主题引擎 | 内置 Dark+ / Light+；加载 VS Code 主题 JSON（`colors`→UI CSS 变量、`tokenColors`→Monaco rules）；**动态语言高亮（2026-09-07 增强）**：用户可经「管理语言高亮」命令添加 Monarch tokenizer JSON 自定义语言（ID/显示名/扩展名/语法），运行时注册 Monaco + 扩展名映射，持久化 `~/.aluka-ide/languages.json` 重启自动加载 | P1 | 任一纯配色 VS Code 主题插件加载后 UI+编辑器配色生效；添加 Monarch 语法定义后对应扩展名文件按新语言高亮 |
-| FR-10 | 扩展系统 | 见 §5 兼容性分级（L1~L3 为本期） | P1 | 见 §5 各级验收 |
+| FR-10 | 扩展系统 | 见 §5 兼容性分级（**L1~L2 + 代码片段**为本期；不执行扩展代码） | P1 | 见 §5 验收 |
 | FR-11 | 状态栏 | 行:列、语言、编码、EOL、git 分支（点击切换/新建分支、ahead/behind 显示）、通知气泡 | P1 | 打开文件后信息准确；git 仓库内显示分支并可切换 |
 | FR-12 | 设置 | 主题、字号、自动保存等；持久化到 `~/.aluka-ide/settings.json`；**会话恢复**（最近工作区与已打开标签存 localStorage，刷新/重载后自动重开） | P2 | 重启后设置保留；刷新/重载后工作区与标签自动恢复 |
 | FR-13 | 欢迎页 | 未打开工作区 / 未打开文件的空状态引导（打开文件夹、快捷键提示） | P2 | — |
 | FR-14 | i18n | 中/英文案切换 | P2 | — |
 | FR-15 | 源代码管理（Git） | SCM 侧栏：暂存区/工作区两级列表、M/A/D/U/R 状态徽标、暂存/取消暂存/放弃更改、提交框（Ctrl+Enter，空暂存区时自动全量暂存再提交）；变更文件点击开启 Monaco Diff 双栏对比；活动栏未提交数徽标；Ctrl+Shift+G；非仓库工作区可一键 `git init`；push/pull（凭证走系统 git 配置） | P1 | 暂存→提交→状态清零闭环；Diff 双栏正确；分支切换生效 |
-| FR-16 | 插件市场（在线） | Open VSX 在线查询/热门推荐/一键下载，经 Rust 端安全解包安装（与本地 VSIX 同管线）；已安装/插件市场双 Tab、安装态识别、卸载；列表点击进入详情页（头部 + README 渲染：已安装读本地文件，市场经详情 API 在线拉取）；JSONC 解析兼容带注释的主题/片段文件；离线时核心编辑能力不受影响 | P2 | 在线可搜到并安装主题/命令扩展且即装即用；点击扩展可查看 README；离线仅市场 Tab 报错 |
+| FR-16 | ~~插件市场（在线）~~ | **已移除（v0.3.0 范围变更）**：在线市场是唯一需要联网的功能，与 NFR-03（无外联）/NFR-06（离线可用）冲突。移除后应用零网络依赖，VSIX 仅来自用户本地文件；扩展视图保留已安装列表 + 本地 VSIX 安装 + README 详情 | — | — |
 | FR-17 | 标题栏菜单栏 | 文件/编辑/选择/查看/转到/运行/终端/帮助八个下拉菜单，全部复用命令注册表；编辑/选择菜单以活动 Monaco 编辑器为执行目标 | P0 | 八菜单可用；未打开工作区时新建/运行给出引导提示 |
 | FR-18 | 运行活动文件 | 按扩展名映射运行命令（python/node/go run/cargo run/bash/powershell/cmd 等）：先保存脏文件，再开终端会话写入命令 | P2 | Python/Node 等主流文件一键运行并回显输出 |
 | FR-19 | Markdown 预览 | md 文件组内编辑/预览切换（`markdown.showPreview`，Ctrl+Shift+V；组右上预览按钮；查看菜单入口）；零依赖自研渲染（标题/代码块/引用/列表/表格/行内样式）；先转义后渲染、危险 scheme 降级、图片零外联；外链点击复制地址提示 | P2 | md 文件可切换预览；编辑键入实时刷新；XSS 向量转义 |
@@ -71,10 +71,10 @@ VS Code 功能全面但资源占用高（安装包 90MB+、冷启动慢、内存
 | --- | --- | --- |
 | NFR-01 | 性能 | 冷启动 ≤ 2s；目录树首屏 ≤ 500ms（1 万文件）；编辑键入延迟无感知（< 50ms） |
 | NFR-02 | 体积 | 安装包 ≤ 25MB；空闲内存 ≤ 300MB |
-| NFR-03 | 安全 | VSIX 解包防 zip-slip（条目路径校验）；扩展仅能通过桥接 API 行动，无 Node/进程能力；无遥测、无外联 |
+| NFR-03 | 安全 | VSIX 解包防 zip-slip（条目路径校验）+ `publisher`/`name` 白名单 + 目标目录归属断言 + 解包体积/条目上限；**扩展为纯声明式数据，应用不执行任何扩展代码**（无 Node/进程/网络能力）；CSP 收紧至 `default-src 'self'`；无遥测、无外联（零运行时网络请求） |
 | NFR-04 | 平台 | Windows 10+ 优先交付；macOS/Linux 保持代码层可移植（验证次序靠后） |
 | NFR-05 | 可维护 | 前端仅经 `src/tauri.ts` 单点调用后端命令；`npm run build`（含 tsc）与 `cargo clippy -D warnings` 零错误零警告 |
-| NFR-06 | 离线 | Monaco 等全部资源本地打包，不依赖 CDN；**核心编辑能力（打开/编辑/保存/搜索/终端/本地 VSIX 安装）全功能离线可用；在线市场 Tab 为在线增值能力，离线时仅该 Tab 报错重试** |
+| NFR-06 | 离线 | Monaco 等全部资源本地打包，不依赖 CDN；**全部功能离线可用，应用不含任何运行时网络请求**（在线市场已移除，CSP `connect-src` 仅放行本地 IPC） |
 
 ## 5. 扩展系统与 VS Code 兼容性策略（核心需求）
 
@@ -82,26 +82,30 @@ VS Code API 面积极大（数百个 API + Node.js 运行时），"完全兼容"
 
 | 级别 | 能力 | 兼容方式 | 状态 |
 | --- | --- | --- | --- |
-| L1 | 清单识别 | 解析 VS Code `package.json`：`name/publisher/version/displayName/icon/contributes/activationEvents/main` | 本期（M6） |
-| L2 | 颜色主题 | `contributes.themes` → 主题 JSON 的 `colors` 映射到 UI CSS 变量、`tokenColors` 按 TextMate scope 前缀映射为 Monaco theme rules | 本期（M6） |
-| L3 | 命令/快捷键/片段 | `contributes.commands/keybindings/snippets`；`main.js` 在渲染进程沙箱中执行，提供 `vscode` 兼容垫片（`commands.registerCommand`、`window.showXxxMessage`、`workspace` 读写） | 本期（M6） |
+| L1 | 清单识别 | 解析 VS Code `package.json`：`name/publisher/version/displayName/icon/contributes` | 本期（M6） |
+| L2 | 颜色主题 | `contributes.themes` → 主题 JSON 的 `colors` 映射到 UI CSS 变量、`tokenColors` 按 TextMate scope 前缀映射为 Monaco theme rules；色值经白名单校验后写入 | 本期（M6） |
+| — | 代码片段 | `contributes.snippets` → Monaco 补全项（纯声明式数据） | 本期（M6） |
+| L3 | 命令/快捷键 + 执行 | `main.js` 沙箱执行 + `vscode` 垫片 | **已移除（v0.3.0 范围收缩）**，见下 |
 | L4 | 自定义视图 | Webview 视图容器/视图（iframe 隔离承载扩展 UI） | 规划 |
 | L5 | 完整 API | 独立扩展宿主进程实现 `vscode.*` 大 API 面 + Node 能力（需捆绑 Node 运行时，与"轻量"冲突，单列为可选组件） | 远期 |
 
+**L3 移除理由（v0.3.0 范围变更）**：L3 的 `main.js` 沙箱在缺少文档同步、编辑器访问（`activeTextEditor` 恒为 `null`）与事件派发的前提下，实际只能支撑"注册一个只会弹通知的命令"，却在命令面板留下**可点但无实现**的死命令（体验劣于不支持），同时承担执行任意 JS 的全部安全风险与最重的维护成本（`vscode` 垫片 + 互操作兜底约 500 行）。故整体移除，**扩展退化为不可执行的声明式数据**。这也使 NFR-03"扩展仅能通过桥接 API 行动"由"约束"变为"结构上不可能"。
+
 **明确不承诺**：调试器（DAP）、LSP、Remote 开发。
 
-**安装方式**：本地 `.vsix`（zip 格式）→ Rust 端解包到 `~/.aluka-ide/extensions/<publisher>.<name>/` → 前端扫描清单并注册；**在线市场（FR-16）下载的 VSIX 字节流经 `install_vsix_bytes` 走同一安全解包管线**。
+**安装方式**：本地 `.vsix`（zip 格式）→ Rust 端解包到 `~/.aluka-ide/extensions/<publisher>.<name>/` → 前端扫描清单并注册主题/片段。仅支持本地文件，**无在线下载**（FR-16 已移除）。
 
 **目录约定**：全局扩展 `~/.aluka-ide/extensions/`；工作区级 `<workspace>/.aluka/extensions/`（优先级更高）。
 
-### L2/L3 级验收标准
+### L2 级验收标准
 
-- 安装一个纯主题 VSIX（如 One Monokai）→ 状态栏切主题 → UI 与编辑器配色同时变化。
-- 安装一个命令类示例扩展 → 命令面板可搜到并执行 `window.showInformationMessage` 弹出通知。
+- 安装一个纯主题 VSIX（如 One Monokai）→ 主题选择器切换 → UI 与编辑器配色同时变化。
+- 安装一个含 `contributes.snippets` 的扩展 → 对应语言文件内键入前缀 → 补全项出现且插入正确。
 
 ## 6. 范围外（Non-goals）
 
-- VS Marketplace 账号体系、同步
+- VS Marketplace / Open VSX 在线安装、账号体系、同步（在线市场已移除）
+- 扩展代码执行（`main.js` 沙箱、`contributions.commands` 实现、`vscode.*` API 面）——L3 已移除，属明确不承诺
 - 调试器（DAP）、LSP 智能补全（Monaco 仅 Monarch 高亮）
 - Remote / 容器开发、 notebooks
 - 转到定义/引用等 **LSP 语义级**导航（依赖语言服务；FR-20 的文本级定义索引不算语义导航）
@@ -176,4 +180,5 @@ VS Code API 面积极大（数百个 API + Node.js 运行时），"完全兼容"
 | 2026-09-08 | v0.2.10 | FR-04 编辑器外部变更自动刷新：`workspace:changed` 负载升级为 `{ path, kind }` 列表；新增 `reloadFile`（干净文件自动重载、脏文件冲突三选、外部删除保留/关闭）；新增「从磁盘重新载入」命令并接入文件菜单与标签右键 |
 | 2026-09-08 | v0.2.11 | 会话恢复：最近工作区根 + 已打开标签持久化到 localStorage，刷新/重载后自动重开；修复外部文件变更触发前端刷新后工作区丢失 |
 | 2026-09-09 | v0.2.12 | 新增 FR-21 提交记录（Git 历史）查询：Rust `git_log`/`git_commit_detail`（`git log` 单行 \x1f 字段解析；`--name-status -z --no-renames` NUL 成对解析防路径转义；根提交对比空树、合并提交只对比首父；3 例解析单测锁定）；独立侧栏视图 `GitHistoryView`（活动栏「提交记录」入口 + 命令 `workbench.view.history`）：提交列表按信息/作者/哈希实时过滤、点击展开改动文件清单、点击文件打开提交前后 Diff、「加载更多」100/档至 1000 上限、非仓库可一键 git init；`StatusBadge` 抽为共享组件 |
+| 2026-09-19 | v0.3.0 | **范围收缩：移除 L3 扩展命令执行与在线插件市场**。① L3 `main.js` 沙箱 + `vscode` 垫片整体移除（约 500 行）：在无文档同步/编辑器访问/事件派发条件下仅能支撑弹通知，却留下"可点但无实现"的死命令并承担执行任意 JS 的全部风险；扩展退化为纯声明式数据（主题 + 片段），NFR-03 由"约束"变为"结构上不可能"。② FR-16 在线市场（Open VSX）移除：它是唯一需要联网的功能，移除后应用零网络依赖，NFR-06 完全达成。③ 安全加固：VSIX 安装补 `publisher`/`name` 白名单 + 目标目录归属断言 + 解包体积/条目上限、扩展文件读取限定受管目录、文件访问作用域收敛（写/保存/CRUD）、命令命名空间守卫、主题色值白名单、CSP 由 `null` 收紧至 `default-src 'self'`。④ 新增 6 例安全单测（共 20 例） |
 | 2026-09-18 | v0.2.13 | 新增 FR-22 终端 IO 调试（FR-06 配套，功能已于 2026-09-11 实现，本次补登记）：可插拔调试管道（会话级放行/丢弃/规则改写、双向记录、手动发送/历史重发、复制原文与字节序列）；侧栏「终端 IO 调试」视图（顶端「终端」菜单唯一入口、活动栏图标随开随显、× 彻底关闭）；调试状态不持久化，关闭即复位不影响正常终端输入 |

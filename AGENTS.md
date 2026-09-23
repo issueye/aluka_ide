@@ -4,7 +4,7 @@
 
 ## 1. 项目简介
 
-**Aluka IDE**：基于 Rust + Tauri 2 + React 18 + TypeScript + TailwindCSS 4 + Monaco Editor 的轻量级 IDE。界面遵循 VS Code 设计语言（Dark+），提供与 VS Code 扩展格式**子集兼容**的插件系统（清单 / 主题 / 命令 / 快捷键 / 片段 / 本地 VSIX 安装）。
+**Aluka IDE**：基于 Rust + Tauri 2 + React 18 + TypeScript + TailwindCSS 4 + Monaco Editor 的轻量级 IDE。界面遵循 VS Code 设计语言（Dark+），提供与 VS Code 扩展格式**子集兼容**的插件系统（清单 / 颜色主题 / 代码片段 / 本地 VSIX 安装）。**应用不联网、不执行扩展代码**。
 
 - 需求事实来源：[.work/REQUIREMENTS.md](.work/REQUIREMENTS.md)
 - 计划与里程碑：[.work/DEVELOPMENT_PLAN.md](.work/DEVELOPMENT_PLAN.md)
@@ -88,9 +88,12 @@ aluka_ide/
 
 ## 7. 扩展系统工作约定（摘要）
 
-- 只实现 REQUIREMENTS §5 当前级别（本期 L1~L3）；不引入 Node 扩展宿主。
-- VSIX 解包必须在 Rust 端做 zip-slip 防护；扩展 JS 只运行在前端沙箱垫片内，仅暴露 `commands/window/workspace` 桥接面。
-- 每次扩展系统改动，须用"示例主题扩展 + 示例命令扩展"两个用例回归。
+- 只实现 REQUIREMENTS §5 当前级别（本期 **L1~L2 + 代码片段**）；不引入 Node 扩展宿主。
+- VSIX 解包必须在 Rust 端做 zip-slip 防护，并对 `publisher`/`name` 做白名单校验与目标目录归属断言；解包须设体积与条目上限。
+- **扩展 JS 一律不得执行**：`main.js` 沙箱与 `vscode` 垫片已按范围决策移除（详见 REQUIREMENTS §5）。新增任何形式的扩展代码执行能力都属范围变更。
+- 扩展只作为声明式数据被消费（主题 / 片段）；主题色值与 `tokenColors` 必须经白名单校验后再写入样式。
+- 应用**不得引入任何运行时网络请求**（NFR-03/06）；在线市场已移除，如未来需要联网能力须先走文档变更。
+- 每次扩展系统改动，须用示例主题扩展（`examples/extensions/monokai-theme`）回归。
 
 ## 8. 质量红线
 

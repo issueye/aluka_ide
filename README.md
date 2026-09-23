@@ -1,6 +1,6 @@
 # Aluka IDE
 
-轻量级桌面 IDE：**Rust + Tauri 2 + React 18 + TypeScript + Monaco Editor**，VS Code 观感（Dark+），兼容 VS Code 扩展格式的**子集**（清单 / 颜色主题 / 命令 / 快捷键 / 片段 / 本地 VSIX 安装）。
+轻量级桌面 IDE：**Rust + Tauri 2 + React 18 + TypeScript + Monaco Editor**，VS Code 观感（Dark+），兼容 VS Code 扩展格式的**子集**（清单 / 颜色主题 / 代码片段 / 本地 VSIX 安装）。**完全不联网、不执行扩展代码**。
 
 目标是在保留日常编辑体验（文件树 / 全局搜索 / 多标签编辑 / 终端 / 命令面板 / 主题）的同时，把安装包控制在 25MB 以内、空闲内存控制在 300MB 以内。
 
@@ -14,7 +14,7 @@
 - **终端**：cmd 管道会话（UTF-8）、多标签、流式输出、输入行回显
 - **命令与快捷键**：命令注册表 + 快捷键中枢（单表分发）、命令面板（模糊匹配 + 最近使用置顶）、快速打开（Ctrl+P）
 - **主题**：内置 Dark+ / Light+；主题引擎支持 VS Code 主题 JSON（colors → CSS 变量、tokenColors → Monaco rules），扩展主题即插即用
-- **扩展**：本地 VSIX / Open VSX 在线安装（zip-slip 防护、下载进度）、全局 + 工作区两级目录、`main.js` 沙箱 + `vscode` 兼容垫片（CommonJS/`require("vscode")` 支持；未实现 API 宽容兜底 + 降级提示）、列表点击查看 README 详情（本地图片内联）、版本更新检测与一键升级、卸载即时清理命令
+- **扩展**（声明式，不执行扩展代码）：本地 VSIX 安装（zip-slip 防护 + `publisher`/`name` 白名单 + 目标目录归属断言 + 解包体积/条目上限）、全局 + 工作区两级目录、颜色主题即装即用、代码片段注入补全、列表点击查看 README 详情（本地相对图片 base64 内联，零外联）、禁用/卸载即时清理主题与片段注册
 - **设置**：主题 / 字号 / 自动保存，持久化到 `~/.aluka-ide/settings.json`
 
 ## 快捷键
@@ -55,24 +55,24 @@ cd src-tauri && cargo test       # 搜索匹配器等单元测试
 
 ## 扩展开发指南
 
-Aluka 兼容 VS Code 扩展格式的子集：一个扩展就是一个目录（VSIX 内为 `extension/` 前缀），根下放 `package.json` 清单，安装后从命令面板 / 主题选择器直接使用。
+Aluka 兼容 VS Code 扩展格式的子集：一个扩展就是一个目录（VSIX 内为 `extension/` 前缀），根下放 `package.json` 清单，安装后主题从主题选择器使用、片段在编辑器中直接触发。
+
+> **能力边界**：扩展是**纯声明式数据**，应用**不执行任何扩展 JavaScript**。
+> 因此 `main`、`contributes.commands`、`contributes.keybindings` 均被忽略。
 
 ### 清单（L1）
 
 ```jsonc
 // extension/package.json
 {
-  "name": "hello-command",
-  "displayName": "Aluka Hello 命令示例",
+  "name": "monokai-theme",
+  "displayName": "Monokai 主题示例",
   "description": "…",
   "version": "0.0.1",
   "publisher": "aluka-samples",
-  "main": "./main.js",              // 可选：沙箱执行的扩展入口
   "contributes": {
-    "commands":    [{ "command": "aluka-hello.sayHello", "title": "Hello（示例扩展）", "category": "帮助" }],
-    "keybindings": [{ "command": "aluka-hello.sayHello", "key": "ctrl+alt+h" }],
-    "themes":      [{ "label": "Monokai（Aluka 示例）", "path": "./themes/monokai.json" }],
-    "snippets":    [{ "language": "javascript", "path": "./snippets/javascript.json" }]
+    "themes":   [{ "label": "Monokai（Aluka 示例）", "path": "./themes/monokai.json" }],
+    "snippets": [{ "language": "javascript", "path": "./snippets/javascript.json" }]
   }
 }
 ```
@@ -81,26 +81,20 @@ Aluka 兼容 VS Code 扩展格式的子集：一个扩展就是一个目录（VS
 
 主题 JSON 使用 VS Code 形状：`type`（dark/light）+ `colors`（workbench 色映射到 UI CSS 变量）+ `tokenColors`（TextMate scope → Monaco rules）。参考 `examples/extensions/monokai-theme`。
 
-### 命令扩展（L3）
+色值与 `tokenColors` 会先经白名单校验再写入样式：`url(...)` 等可触发外联或注入的取值一律丢弃；损坏条目跳过而不中断激活。
 
-`main.js` 在渲染进程沙箱中执行（严格模式，仅注入 `vscode` 形参）。当前垫片 API 面：
+### 代码片段
 
-```js
-vscode.commands.registerCommand(id, fn);   // 实现 contributes.commands 声明的命令
-vscode.commands.executeCommand(id);
-vscode.window.showInformationMessage(msg); // 右下角通知（另有 Warning / Error）
-vscode.workspace.rootPath;                 // 当前工作区根（null = 未打开）
-await vscode.workspace.readFile(path);     // 仅限工作区内文本文件（只读）
-```
+`contributes.snippets` 指向 VS Code 片段 JSON（`前缀 → { body, description }`，支持 JSONC），注册为 Monaco 补全项，键入前缀即触发。
 
 ### 打包与安装
 
 ```bash
 # 零依赖打包脚本（stored ZIP，正斜杠条目名）
-node scripts/make-vsix.mjs examples/extensions/hello-command aluka-hello-0.0.1.vsix
+node scripts/make-vsix.mjs examples/extensions/monokai-theme aluka-monokai-0.0.1.vsix
 ```
 
-应用内：扩展视图 → 「从 VSIX 安装…」。全局扩展位于 `~/.aluka-ide/extensions/`，工作区级 `<workspace>/.aluka/extensions/` 优先级更高。禁用/卸载后重开应用生效。
+应用内：扩展视图 → 「从 VSIX 安装」。全局扩展位于 `~/.aluka-ide/extensions/`，工作区级 `<workspace>/.aluka/extensions/` 优先级更高。禁用/卸载后重开应用生效。
 
 ### 兼容性分级与明确不承诺
 
@@ -108,11 +102,16 @@ node scripts/make-vsix.mjs examples/extensions/hello-command aluka-hello-0.0.1.v
 | --- | --- | --- |
 | L1 | 清单识别 | ✅ 本期 |
 | L2 | 颜色主题 | ✅ 本期 |
-| L3 | 命令/快捷键/片段 + 沙箱垫片 | ✅ 本期 |
+| — | 代码片段（`contributes.snippets`） | ✅ 本期 |
+| L3 | 命令 / 快捷键 + `main.js` 沙箱 | ❌ **已移除**（见下） |
 | L4 | Webview 自定义视图 | 规划 |
 | L5 | 完整 vscode.* + Node 宿主 | 远期（与"轻量"目标冲突） |
 
-明确不承诺：VS Marketplace 账号体系/同步、调试器（DAP）、LSP 语义级导航与补全（代码跳转为文本级定义索引，非语义分析）、Remote 开发、扩展 Webview 视图（L4 规划中）。
+**L3 为何移除**：在缺少文档同步、编辑器访问与事件派发的条件下，`main.js` 沙箱只能支撑「注册一个弹通知的命令」，却要付出执行任意 JS 的全部安全代价与最重的维护成本；同时会在命令面板留下「可点但无实现」的死命令，体验上比不支持更差。故整体移除，扩展退化为不可执行的声明式数据。
+
+**同时移除在线市场（Open VSX）**：它是唯一需要联网的功能。移除后应用**零网络依赖**（NFR-03/NFR-06 完全达成），VSIX 仅来自用户本地文件。
+
+明确不承诺：VS Marketplace / Open VSX 在线安装、账号体系与同步、调试器（DAP）、LSP 语义级导航与补全（代码跳转为文本级定义索引，非语义分析）、Remote 开发、扩展 Webview 视图（L4 规划中）。
 
 ## 架构速览
 
