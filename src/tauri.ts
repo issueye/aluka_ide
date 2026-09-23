@@ -46,9 +46,16 @@ export async function deleteEntry(path: string): Promise<void> {
   return invoke<void>("delete_entry", { path });
 }
 
-/** 启动/重建工作区文件监听（重复调用会替换旧监听） */
+/** 启动/重建工作区文件监听（重复调用会替换旧监听）。
+ * 副作用：Rust 侧同步把文件访问作用域收敛到该目录（写/保存/CRUD 的纵深防御）。 */
 export async function watchWorkspace(root: string): Promise<void> {
   return invoke<void>("watch_workspace", { root });
+}
+
+/** 声明/清空文件访问作用域（null = 未打开文件夹的单文件视图，不做路径收敛）。
+ * 关闭工作区必须清空，否则旧作用域会残留并误拒新工作区之外的合法写入。 */
+export async function setFileScope(root: string | null): Promise<void> {
+  return invoke<void>("set_file_scope", { root });
 }
 
 /** 文本文件读取结果 */
@@ -384,11 +391,6 @@ export async function pickVsixDialog(): Promise<string | null> {
 /** 安装本地 VSIX 到全局扩展目录（覆盖安装） */
 export async function installVsix(vsixPath: string): Promise<InstallResult> {
   return invoke<InstallResult>("install_vsix", { vsixPath });
-}
-
-/** 从二进制字节流安装 VSIX（原始 IPC 载荷直传，避免 JSON 数组序列化膨胀） */
-export async function installVsixBytes(bytes: Uint8Array): Promise<InstallResult> {
-  return invoke<InstallResult>("install_vsix_bytes", bytes);
 }
 
 /** 扫描已安装扩展（全局 + 工作区 .aluka/extensions） */

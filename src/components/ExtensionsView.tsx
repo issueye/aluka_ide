@@ -1,14 +1,9 @@
-import { useCallback, useEffect, useState, useMemo } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
-  ArrowDownToLine,
   Blocks,
-  Check,
-  Download,
   FolderDown,
-  Loader2,
   Puzzle,
   RefreshCw,
-  Search,
   Trash2,
   X,
 } from "lucide-react";
@@ -32,49 +27,25 @@ import {
   unloadExtension,
 } from "../extHost/registry";
 import { useNotificationStore } from "../notificationStore";
-import {
-  useMarketplaceStore,
-  isNewerVersion,
-  type MarketplaceExtension,
-} from "../marketplaceStore";
-import ExtensionDetail, {
-  type ExtensionDetailTarget,
-} from "./ExtensionDetail";
+import ExtensionDetail from "./ExtensionDetail";
+
+/**
+ * 扩展视图（L1~L2 + 片段）：已安装列表 + 本地 VSIX 安装 + 详情（README）。
+ * 在线市场（Open VSX）已移除：NFR-03/06 要求离线可用且无外联，
+ * 市场是唯一需要联网的功能，删除后应用退化为完全离线（零网络依赖）。
+ */
 
 function extDisplayName(m: ExtensionManifest): string {
   return m.displayName ?? m.name;
 }
 
-function formatDownloadCount(num?: number): string {
-  if (!num) return "";
-  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
-  if (num >= 1_000) return `${(num / 1_000).toFixed(1)}k`;
-  return `${num}`;
-}
-
-/** 扩展图标组件，支持在线图片与加载失败降级 */
-function ExtensionIcon({
-  url,
-  displayName,
-}: {
-  url?: string;
-  displayName: string;
-}) {
-  const [imgError, setImgError] = useState(false);
-
-  if (url && !imgError) {
-    return (
-      <img
-        src={url}
-        alt={displayName}
-        onError={() => setImgError(true)}
-        className="h-10 w-10 shrink-0 rounded object-contain bg-[var(--aluka-input-bg)] p-1"
-      />
-    );
-  }
-
+/** 扩展图标：仅内存态占位图（本地扩展无在线图标源，市场已移除） */
+function ExtensionIcon({ displayName }: { displayName: string }) {
   return (
-    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-[var(--aluka-input-bg)]">
+    <div
+      title={displayName}
+      className="flex h-10 w-10 shrink-0 items-center justify-center rounded bg-[var(--aluka-input-bg)]"
+    >
       <Puzzle size={20} className="text-[var(--aluka-text-dim)]" />
     </div>
   );
@@ -87,25 +58,15 @@ export default function ExtensionsView() {
   >([]);
   const [busyLocal, setBusyLocal] = useState(false);
   const [disabled, setDisabled] = useState<Set<string>>(new Set());
-  /** 详情页目标：null = 列表；切换 Tab 时清空 */
-  const [detail, setDetail] = useState<ExtensionDetailTarget | null>(null);
+  /** 查询框：按显示名/发布者/描述过滤已安装列表 */
+  const [query, setQuery] = useState("");
+  /** 详情页目标：null = 列表 */
+  const [detail, setDetail] = useState<{
+    dir: string;
+    origin: "global" | "workspace";
+    manifest: ExtensionManifest;
+  } | null>(null);
   const show = useNotificationStore((s) => s.show);
-
-  const {
-    query,
-    results,
-    popular,
-    loading: marketLoading,
-    error: marketError,
-    installingIds,
-    downloadProgress,
-    activeTab,
-    setQuery,
-    setActiveTab,
-    search,
-    loadPopular,
-    install: installFromMarket,
-  } = useMarketplaceStore();
 
   // 刷新本地已安装列表
   const refreshInstalled = useCallback(async () => {
@@ -127,30 +88,9 @@ export default function ExtensionsView() {
 
   useEffect(() => {
     void refreshInstalled();
-    void loadPopular();
-  }, [refreshInstalled, loadPopular]);
+  }, [refreshInstalled]);
 
-  // 已安装扩展 ID 集合（小写 publisher.name）
-  const installedIdMap = useMemo(() => {
-    const map = new Map<string, InstalledExtension & { manifest: ExtensionManifest }>();
-    for (const item of installedList) {
-      const id = extensionId(item.manifest).toLowerCase();
-      map.set(id, item);
-    }
-    return map;
-  }, [installedList]);
-
-  // 搜索防抖
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (query.trim()) {
-        void search(query);
-      }
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [query, search]);
-
-  // 本地 VSIX 安装（与在线安装一致：装完即时激活，无需重启）
+  // 本地 VSIX 安装（装完即时激活，无需重启）
   const handleInstallLocalVsix = async () => {
     setBusyLocal(true);
     try {
@@ -167,18 +107,7 @@ export default function ExtensionsView() {
     }
   };
 
-  // 在线市场安装
-  const handleMarketplaceInstall = async (ext: MarketplaceExtension) => {
-    try {
-      await installFromMarket(ext);
-      show("info", `扩展 ${ext.displayName ?? ext.name} 安装成功！`);
-      await refreshInstalled();
-    } catch (e) {
-      show("error", `安装失败: ${String(e)}`);
-    }
-  };
-
-  // 卸载（extId 提供时热清理运行时资产：命令/主题/片段 provider）
+  // 卸载（extId 提供时热清理运行时资产：主题/切换命令/片段 provider）
   const handleUninstall = async (dir: string, name: string, extId?: string) => {
     try {
       await uninstallExtension(dir);
@@ -197,105 +126,64 @@ export default function ExtensionsView() {
     show("info", next ? "已禁用，重开应用后生效" : "已启用，重开应用后生效");
   };
 
-  const isSearching = Boolean(query.trim());
-  const displayMarketList = isSearching ? results : popular;
+  // 关键词过滤（空查询 = 全量）
+  const keyword = query.trim().toLowerCase();
+  const filteredList = keyword
+    ? installedList.filter(({ manifest: m }) =>
+        [extDisplayName(m), m.publisher, m.description ?? ""]
+          .join(" ")
+          .toLowerCase()
+          .includes(keyword),
+      )
+    : installedList;
 
-  /** 进入详情后若扩展被卸载/列表刷新导致目标消失，退回列表 */
+  /** 进入详情后若扩展被卸载导致目标消失，退回列表 */
   useEffect(() => {
-    if (detail?.kind !== "installed") return;
+    if (!detail) return;
     if (!installedList.some((x) => x.dir === detail.dir)) setDetail(null);
   }, [installedList, detail]);
 
-  const openMarketplaceTab = (tab: "installed" | "marketplace") => {
-    setDetail(null);
-    setActiveTab(tab);
-  };
-
-  /** 详情页渲染（含头部图标与操作闭包） */
-  const renderDetail = () => {
-    if (!detail) return null;
-    if (detail.kind === "installed") {
-      const item = installedList.find((x) => x.dir === detail.dir);
-      if (!item) return null;
-      const id = extensionId(item.manifest);
-      const isDisabled = disabled.has(id);
-      return (
-        <ExtensionDetail
-          detail={{ ...detail, disabled: isDisabled }}
-          icon={<ExtensionIcon displayName={extDisplayName(item.manifest)} />}
-          onBack={() => setDetail(null)}
-          onToggleDisabled={() => {
-            handleToggleDisabled(id, !isDisabled);
-            setDetail({ ...detail, disabled: !isDisabled });
-          }}
-          onUninstall={() => {
-            void handleUninstall(
-              item.dir,
-              extDisplayName(item.manifest),
-              extensionId(item.manifest),
-            ).then(() => setDetail(null));
-          }}
-        />
-      );
-    }
-    const isInstalling = installingIds.has(detail.ext.id);
-    const installedItem = installedIdMap.get(detail.ext.id);
-    const outdated = installedItem
-      ? isNewerVersion(detail.ext.version, installedItem.manifest.version)
-      : false;
-    const pct = downloadProgress[detail.ext.id];
-    return (
-      <ExtensionDetail
-        detail={detail}
-        icon={
-          <ExtensionIcon
-            url={detail.ext.iconUrl}
-            displayName={detail.ext.displayName || detail.ext.name}
-          />
-        }
-        onBack={() => setDetail(null)}
-        onInstall={
-          installedItem && !outdated
-            ? undefined
-            : () => void handleMarketplaceInstall(detail.ext)
-        }
-        installing={isInstalling}
-        installProgress={pct}
-        outdated={outdated}
-        latestVersion={detail.ext.version}
-        installed={Boolean(installedItem)}
-      />
-    );
-  };
-
   if (detail) {
+    const item = installedList.find((x) => x.dir === detail.dir);
+    if (!item) return null;
+    const id = extensionId(item.manifest);
+    const isDisabled = disabled.has(id);
     return (
       <div className="flex h-full flex-col text-[12px]">
-        <div className="min-h-0 flex-1">{renderDetail()}</div>
+        <div className="min-h-0 flex-1">
+          <ExtensionDetail
+            detail={{
+              dir: item.dir,
+              origin: item.origin === "workspace" ? "workspace" : "global",
+              manifest: item.manifest,
+              disabled: isDisabled,
+            }}
+            icon={<ExtensionIcon displayName={extDisplayName(item.manifest)} />}
+            onBack={() => setDetail(null)}
+            onToggleDisabled={() => handleToggleDisabled(id, !isDisabled)}
+            onUninstall={() => {
+              void handleUninstall(
+                item.dir,
+                extDisplayName(item.manifest),
+                extensionId(item.manifest),
+              ).then(() => setDetail(null));
+            }}
+          />
+        </div>
       </div>
     );
   }
 
   return (
     <div className="flex h-full flex-col text-[12px]">
-      {/* 顶部搜索框 */}
+      {/* 顶部：搜索 + 操作栏 */}
       <div className="border-b border-[var(--aluka-border)] p-2">
         <div className="relative flex items-center">
-          <Search
-            size={13}
-            className="absolute left-2 text-[var(--aluka-text-dim)]"
-          />
           <input
             value={query}
-            onChange={(e) => {
-              const val = e.target.value;
-              setQuery(val);
-              if (val.trim() && activeTab !== "marketplace") {
-                openMarketplaceTab("marketplace");
-              }
-            }}
-            placeholder="搜索开源市场扩展 (Open VSX)..."
-            className="w-full rounded border border-[var(--aluka-border)] bg-[var(--aluka-input-bg)] py-1.5 pl-7 pr-7 font-mono text-[12px] text-[var(--aluka-text)] placeholder-[var(--aluka-text-dim)] outline-none focus:border-[#007acc]"
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="按名称 / 发布者搜索已安装扩展..."
+            className="w-full rounded border border-[var(--aluka-border)] bg-[var(--aluka-input-bg)] py-1.5 pl-2 pr-7 font-mono text-[12px] text-[var(--aluka-text)] placeholder-[var(--aluka-text-dim)] outline-none focus:border-[#007acc]"
           />
           {query && (
             <button
@@ -307,31 +195,10 @@ export default function ExtensionsView() {
           )}
         </div>
 
-        {/* 标签栏与操作栏 */}
         <div className="mt-2 flex items-center justify-between">
-          <div className="flex rounded bg-[var(--aluka-input-bg)] p-0.5 text-[11px]">
-            <button
-              onClick={() => openMarketplaceTab("installed")}
-              className={`rounded px-2 py-0.5 ${
-                activeTab === "installed"
-                  ? "bg-[var(--aluka-active)] font-medium text-[var(--aluka-text)] shadow-sm"
-                  : "text-[var(--aluka-text-dim)] hover:text-[var(--aluka-text)]"
-              }`}
-            >
-              已安装 ({installedList.length})
-            </button>
-            <button
-              onClick={() => openMarketplaceTab("marketplace")}
-              className={`rounded px-2 py-0.5 ${
-                activeTab === "marketplace"
-                  ? "bg-[var(--aluka-active)] font-medium text-[var(--aluka-text)] shadow-sm"
-                  : "text-[var(--aluka-text-dim)] hover:text-[var(--aluka-text)]"
-              }`}
-            >
-              插件市场
-            </button>
-          </div>
-
+          <span className="text-[11px] text-[var(--aluka-text-dim)]">
+            已安装 ({installedList.length})
+          </span>
           <div className="flex items-center gap-1">
             <button
               title="从本地 .VSIX 安装"
@@ -340,7 +207,7 @@ export default function ExtensionsView() {
               className="flex h-6 items-center gap-1 rounded bg-[var(--aluka-btn-bg)] px-2 text-[11px] text-white hover:bg-[var(--aluka-btn-hover)] disabled:opacity-50"
             >
               <FolderDown size={12} />
-              <span>{busyLocal ? "安装中…" : "VSIX"}</span>
+              <span>{busyLocal ? "安装中…" : "从 VSIX 安装"}</span>
             </button>
             <button
               title="刷新已安装列表"
@@ -353,264 +220,99 @@ export default function ExtensionsView() {
         </div>
       </div>
 
-      {/* 内容区域 */}
+      {/* 列表 */}
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
-        {/* 已安装选项卡 */}
-        {activeTab === "installed" && (
-          <div>
-            {installedList.length === 0 ? (
-              <div className="flex flex-col items-center justify-center gap-2 py-12 text-center text-[var(--aluka-text-dim)]">
-                <Blocks size={36} strokeWidth={1} />
-                <p className="text-[12px]">尚未安装扩展</p>
-                <button
-                  onClick={() => openMarketplaceTab("marketplace")}
-                  className="mt-1 rounded bg-[var(--aluka-btn-bg)] px-3 py-1 text-[11px] text-white hover:bg-[var(--aluka-btn-hover)]"
-                >
-                  去开源插件市场看看
-                </button>
-              </div>
-            ) : (
-              installedList.map(({ dir, manifest: m, origin }) => {
-                const id = extensionId(m);
-                const isDisabled = disabled.has(id);
-                return (
-                  <div
-                    key={dir}
-                    role="button"
-                    tabIndex={0}
-                    title="查看详情"
-                    onClick={() =>
-                      setDetail({
-                        kind: "installed",
-                        dir,
-                        origin: origin === "workspace" ? "workspace" : "global",
-                        manifest: m,
-                        disabled: isDisabled,
-                      })
-                    }
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        setDetail({
-                          kind: "installed",
-                          dir,
-                          origin: origin === "workspace" ? "workspace" : "global",
-                          manifest: m,
-                          disabled: isDisabled,
-                        });
-                      }
-                    }}
-                    className="mb-1 flex cursor-pointer gap-2.5 rounded border border-transparent p-2 hover:border-[var(--aluka-border)] hover:bg-[var(--aluka-hover)]"
-                  >
-                    <ExtensionIcon displayName={extDisplayName(m)} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline gap-1.5">
-                        <span className="truncate text-[13px] font-medium text-[var(--aluka-text)]">
-                          {extDisplayName(m)}
-                        </span>
-                        <span className="shrink-0 text-[11px] text-[var(--aluka-text-dim)]">
-                          {m.version}
-                        </span>
-                        {origin === "workspace" && (
-                          <span className="shrink-0 rounded bg-[var(--aluka-input-bg)] px-1 text-[10px] text-[var(--aluka-text-dim)]">
-                            工作区
-                          </span>
-                        )}
-                      </div>
-                      <div className="truncate text-[11px] text-[var(--aluka-text-dim)]">
-                        {m.description || m.publisher}
-                      </div>
-                      <div className="mt-1.5 flex items-center gap-3">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleToggleDisabled(id, !isDisabled);
-                          }}
-                          className="text-[11px] text-[#3794ff] hover:underline"
-                        >
-                          {isDisabled ? "启用" : "禁用"}
-                        </button>
-                        {origin === "global" && (
-                          <button
-                            title="卸载"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void handleUninstall(dir, extDisplayName(m), id);
-                            }}
-                            className="flex items-center gap-0.5 text-[11px] text-[#f48771] hover:underline"
-                          >
-                            <Trash2 size={11} />
-                            <span>卸载</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
+        {installedList.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-2 py-12 text-center text-[var(--aluka-text-dim)]">
+            <Blocks size={36} strokeWidth={1} />
+            <p className="text-[12px]">尚未安装扩展</p>
+            <p className="max-w-[220px] text-[11px] leading-relaxed">
+              支持 VS Code 颜色主题与代码片段扩展；点击上方「从 VSIX 安装」选择本地包
+            </p>
           </div>
-        )}
-
-        {/* 插件市场选项卡 */}
-        {activeTab === "marketplace" && (
-          <div>
-            <div className="mb-2 flex items-center justify-between px-1 text-[11px] text-[var(--aluka-text-dim)]">
-              <span>
-                {isSearching ? `搜索 "${query}" 的结果` : "热门开源扩展推荐"}
-              </span>
-              <span className="font-mono text-[10px]">Open VSX</span>
-            </div>
-
-            {marketLoading && (
-              <div className="flex items-center justify-center gap-2 py-8 text-[var(--aluka-text-dim)]">
-                <Loader2 size={16} className="animate-spin" />
-                <span>正在查询开源市场…</span>
-              </div>
-            )}
-
-            {marketError && !marketLoading && (
-              <div className="rounded border border-red-500/20 bg-red-500/10 p-3 text-center text-[11px] text-red-400">
-                <p>查询开源市场出错</p>
-                <p className="mt-1 text-[10px] opacity-80">{marketError}</p>
-                <button
-                  onClick={() => (isSearching ? void search(query) : void loadPopular())}
-                  className="mt-2 rounded bg-red-500/20 px-2 py-0.5 text-[10px] hover:bg-red-500/30"
-                >
-                  重试
-                </button>
-              </div>
-            )}
-
-            {!marketLoading && !marketError && displayMarketList.length === 0 && (
-              <div className="py-8 text-center text-[var(--aluka-text-dim)]">
-                <p className="text-[12px]">未找到相关扩展</p>
-                <p className="mt-1 text-[11px]">可尝试更换关键词搜索（如 theme, dracula, rust）</p>
-              </div>
-            )}
-
-            {!marketLoading &&
-              displayMarketList.map((ext) => {
-                const isInstalling = installingIds.has(ext.id);
-                const installedItem = installedIdMap.get(ext.id);
-                const outdated = installedItem
-                  ? isNewerVersion(ext.version, installedItem.manifest.version)
-                  : false;
-                const pct = downloadProgress[ext.id];
-                const dlCountFormatted = formatDownloadCount(ext.downloadCount);
-
-                return (
-                  <div
-                    key={ext.id}
-                    role="button"
-                    tabIndex={0}
-                    title="查看详情"
-                    onClick={() => setDetail({ kind: "market", ext })}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") setDetail({ kind: "market", ext });
-                    }}
-                    className="mb-1.5 flex cursor-pointer gap-2.5 rounded border border-transparent p-2 hover:border-[var(--aluka-border)] hover:bg-[var(--aluka-hover)]"
-                  >
-                    <ExtensionIcon
-                      url={ext.iconUrl}
-                      displayName={ext.displayName || ext.name}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline justify-between gap-1">
-                        <span
-                          className="truncate text-[13px] font-medium text-[var(--aluka-text)]"
-                          title={ext.displayName || ext.name}
-                        >
-                          {ext.displayName || ext.name}
-                        </span>
-                        <span className="shrink-0 text-[10px] text-[var(--aluka-text-dim)]">
-                          v{ext.version}
-                        </span>
-                      </div>
-
-                      <div className="flex items-center gap-2 text-[11px] text-[var(--aluka-text-dim)]">
-                        <span className="truncate">{ext.namespace}</span>
-                        {dlCountFormatted && (
-                          <span className="flex items-center gap-0.5 text-[10px]">
-                            <ArrowDownToLine size={10} />
-                            {dlCountFormatted}
-                          </span>
-                        )}
-                      </div>
-
-                      {ext.description && (
-                        <div
-                          className="mt-0.5 line-clamp-2 text-[11px] text-[var(--aluka-text-dim)]"
-                          title={ext.description}
-                        >
-                          {ext.description}
-                        </div>
-                      )}
-
-                      <div className="mt-2 flex items-center gap-2">
-                        {isInstalling ? (
-                          <button
-                            disabled
-                            className="flex items-center gap-1 rounded bg-[var(--aluka-btn-bg)] px-2 py-0.5 text-[11px] text-white opacity-70"
-                          >
-                            <Loader2 size={11} className="animate-spin" />
-                            <span>{pct != null ? `安装中 ${pct}%` : "安装中…"}</span>
-                          </button>
-                        ) : installedItem && outdated ? (
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] text-[var(--aluka-text-dim)]">
-                              v{installedItem.manifest.version} → v{ext.version}
-                            </span>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void handleMarketplaceInstall(ext);
-                              }}
-                              className="flex items-center gap-1 rounded bg-[var(--aluka-btn-bg)] px-2.5 py-0.5 text-[11px] font-medium text-white hover:bg-[var(--aluka-btn-hover)]"
-                            >
-                              <Download size={11} />
-                              <span>更新</span>
-                            </button>
-                          </div>
-                        ) : installedItem ? (
-                          <div className="flex items-center gap-2">
-                            <span className="flex items-center gap-1 rounded bg-[#89d185]/20 px-1.5 py-0.5 text-[10px] font-medium text-[#89d185]">
-                              <Check size={11} />
-                              已安装
-                            </span>
-                            {installedItem.origin === "global" && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  void handleUninstall(
-                                    installedItem.dir,
-                                    ext.displayName || ext.name,
-                                    extensionId(installedItem.manifest),
-                                  );
-                                }}
-                                className="text-[11px] text-[#f48771] hover:underline"
-                              >
-                                卸载
-                              </button>
-                            )}
-                          </div>
-                        ) : (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void handleMarketplaceInstall(ext);
-                            }}
-                            className="flex items-center gap-1 rounded bg-[var(--aluka-btn-bg)] px-2.5 py-0.5 text-[11px] font-medium text-white hover:bg-[var(--aluka-btn-hover)]"
-                          >
-                            <Download size={11} />
-                            <span>安装</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
+        ) : filteredList.length === 0 ? (
+          <p className="py-8 text-center text-[11px] text-[var(--aluka-text-dim)]">
+            没有匹配「{query}」的扩展
+          </p>
+        ) : (
+          filteredList.map(({ dir, manifest: m, origin }) => {
+            const id = extensionId(m);
+            const isDisabled = disabled.has(id);
+            return (
+              <div
+                key={dir}
+                role="button"
+                tabIndex={0}
+                title="查看详情"
+                onClick={() =>
+                  setDetail({
+                    dir,
+                    origin: origin === "workspace" ? "workspace" : "global",
+                    manifest: m,
+                  })
+                }
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    setDetail({
+                      dir,
+                      origin: origin === "workspace" ? "workspace" : "global",
+                      manifest: m,
+                    });
+                  }
+                }}
+                className="mb-1 flex cursor-pointer gap-2.5 rounded border border-transparent p-2 hover:border-[var(--aluka-border)] hover:bg-[var(--aluka-hover)]"
+              >
+                <ExtensionIcon displayName={extDisplayName(m)} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="truncate text-[13px] font-medium text-[var(--aluka-text)]">
+                      {extDisplayName(m)}
+                    </span>
+                    <span className="shrink-0 text-[11px] text-[var(--aluka-text-dim)]">
+                      {m.version}
+                    </span>
+                    {origin === "workspace" && (
+                      <span className="shrink-0 rounded bg-[var(--aluka-input-bg)] px-1 text-[10px] text-[var(--aluka-text-dim)]">
+                        工作区
+                      </span>
+                    )}
+                    {isDisabled && (
+                      <span className="shrink-0 rounded bg-[var(--aluka-input-bg)] px-1 text-[10px] text-[var(--aluka-text-dim)]">
+                        已禁用
+                      </span>
+                    )}
                   </div>
-                );
-              })}
-          </div>
+                  <div className="truncate text-[11px] text-[var(--aluka-text-dim)]">
+                    {m.description || m.publisher}
+                  </div>
+                  <div className="mt-1.5 flex items-center gap-3">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleDisabled(id, !isDisabled);
+                      }}
+                      className="text-[11px] text-[#3794ff] hover:underline"
+                    >
+                      {isDisabled ? "启用" : "禁用"}
+                    </button>
+                    {origin === "global" && (
+                      <button
+                        title="卸载"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleUninstall(dir, extDisplayName(m), id);
+                        }}
+                        className="flex items-center gap-0.5 text-[11px] text-[#f48771] hover:underline"
+                      >
+                        <Trash2 size={11} />
+                        <span>卸载</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })
         )}
       </div>
     </div>

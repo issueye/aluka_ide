@@ -34,7 +34,7 @@ dependencies = [
 
 [[package]]
 name = "aluka-ide"
-version = "0.2.13"
+version = "0.3.0"
 dependencies = [
  "notify",
  "portable-pty",

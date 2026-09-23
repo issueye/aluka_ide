@@ -1,16 +1,13 @@
 import { useEffect, useState } from "react";
-import { ArrowLeft, Download, Loader2, Trash2 } from "lucide-react";
+import { ArrowLeft, Loader2, Trash2 } from "lucide-react";
 import { readExtensionFile, readExtensionFileBytes } from "../tauri";
 import type { ExtensionManifest } from "../extHost/manifest";
-import type { MarketplaceExtension } from "../marketplaceStore";
-import { useMarketplaceStore } from "../marketplaceStore";
 import MarkdownBody from "./MarkdownBody";
 
 /**
- * 扩展详情：头部（图标/名称/版本/发布者/来源 + 操作）+ README 渲染。
- * 已安装：读本地 README 文件；市场：经 Open VSX 在线拉取。
- * README 引用的扩展目录内相对图片经 read_extension_file_bytes 转 base64 内联
- * （零外联，符合 NFR-03）；读不到的保持占位。
+ * 扩展详情：头部（名称/版本/发布者/来源 + 操作）+ README 渲染。
+ * 仅处理已安装扩展：README 取自本地扩展目录，相对图片经 read_extension_file_bytes
+ * 转 base64 内联 —— 全程零网络请求（NFR-03/06：无外联、离线可用）。
  */
 
 const README_CANDIDATES = ["README.md", "Readme.md", "readme.md", "README.MD", "README.txt"];
@@ -69,19 +66,11 @@ async function inlineLocalImages(dir: string, md: string): Promise<string> {
 }
 
 export interface InstalledDetail {
-  kind: "installed";
   dir: string;
   origin: "global" | "workspace";
   manifest: ExtensionManifest;
   disabled: boolean;
 }
-
-export interface MarketDetail {
-  kind: "market";
-  ext: MarketplaceExtension;
-}
-
-export type ExtensionDetailTarget = InstalledDetail | MarketDetail;
 
 export default function ExtensionDetail({
   detail,
@@ -89,40 +78,17 @@ export default function ExtensionDetail({
   onBack,
   onToggleDisabled,
   onUninstall,
-  onInstall,
-  installing,
-  installed,
-  installProgress,
-  outdated,
-  latestVersion,
 }: {
-  detail: ExtensionDetailTarget;
+  detail: InstalledDetail;
   icon: React.ReactNode;
   onBack: () => void;
   onToggleDisabled?: () => void;
   onUninstall?: () => void;
-  onInstall?: () => void;
-  installing?: boolean;
-  installed?: boolean;
-  /** 在线安装下载进度（0~100；未定义时不显示百分比） */
-  installProgress?: number;
-  /** 市场扩展：本地版本旧于市场版本 */
-  outdated?: boolean;
-  /** 市场最新版本号（更新按钮旁展示 v旧 → v新） */
-  latestVersion?: string;
 }) {
-  const isInstalled = detail.kind === "installed";
-  const title = isInstalled
-    ? (detail.manifest.displayName ?? detail.manifest.name)
-    : (detail.ext.displayName || detail.ext.name);
-  const version = isInstalled ? detail.manifest.version : detail.ext.version;
-  const subtitle = isInstalled
-    ? `${detail.manifest.publisher}${detail.origin === "workspace" ? " · 工作区" : ""}${detail.disabled ? " · 已禁用" : ""}`
-    : `${detail.ext.namespace} · Open VSX`;
-  const description = isInstalled
-    ? detail.manifest.description
-    : detail.ext.description;
-  const fetchReadme = useMarketplaceStore((s) => s.fetchReadme);
+  const title = detail.manifest.displayName ?? detail.manifest.name;
+  const version = detail.manifest.version;
+  const subtitle = `${detail.manifest.publisher}${detail.origin === "workspace" ? " · 工作区" : ""}${detail.disabled ? " · 已禁用" : ""}`;
+  const description = detail.manifest.description;
   const [readme, setReadme] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -132,20 +98,16 @@ export default function ExtensionDetail({
     setReadme(null);
     void (async () => {
       let text: string | null = null;
-      if (isInstalled) {
-        for (const name of README_CANDIDATES) {
-          try {
-            const t = await readExtensionFile(detail.dir, name);
-            if (t.trim()) {
-              text = await inlineLocalImages(detail.dir, t);
-              break;
-            }
-          } catch {
-            continue;
+      for (const name of README_CANDIDATES) {
+        try {
+          const t = await readExtensionFile(detail.dir, name);
+          if (t.trim()) {
+            text = await inlineLocalImages(detail.dir, t);
+            break;
           }
+        } catch {
+          continue;
         }
-      } else {
-        text = await fetchReadme(detail.ext);
       }
       if (!cancelled) {
         if (text) setReadme(text);
@@ -155,9 +117,7 @@ export default function ExtensionDetail({
     return () => {
       cancelled = true;
     };
-    // detail 切换（不同扩展）时重拉；fetchReadme 为 store 稳定引用
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isInstalled ? (detail as InstalledDetail).dir : (detail as MarketDetail).ext.id]);
+  }, [detail.dir]);
 
   return (
     <div className="flex h-full flex-col">
@@ -183,55 +143,21 @@ export default function ExtensionDetail({
             {subtitle}
           </div>
           <div className="mt-1.5 flex items-center gap-3">
-            {onInstall ? (
-              <>
-                {outdated && !isInstalled && (
-                  <span className="text-[11px] text-[var(--aluka-text-dim)]">
-                    v{version} → v{latestVersion}
-                  </span>
-                )}
-                <button
-                  onClick={onInstall}
-                  disabled={installing}
-                  className="flex items-center gap-1 rounded bg-[var(--aluka-btn-bg)] px-2.5 py-0.5 text-[11px] font-medium text-white hover:bg-[var(--aluka-btn-hover)] disabled:opacity-50"
-                >
-                  {installing ? (
-                    <Loader2 size={11} className="animate-spin" />
-                  ) : (
-                    <Download size={11} />
-                  )}
-                  <span>
-                    {installing
-                      ? installProgress != null
-                        ? `安装中 ${installProgress}%`
-                        : "安装中…"
-                      : outdated
-                        ? "更新"
-                        : "安装"}
-                  </span>
-                </button>
-              </>
-            ) : isInstalled ? (
-              <>
-                <button
-                  onClick={onToggleDisabled}
-                  className="text-[11px] text-[#3794ff] hover:underline"
-                >
-                  {detail.disabled ? "启用" : "禁用"}
-                </button>
-                {detail.origin === "global" && (
-                  <button
-                    onClick={onUninstall}
-                    className="flex items-center gap-0.5 text-[11px] text-[#f48771] hover:underline"
-                  >
-                    <Trash2 size={11} />
-                    <span>卸载</span>
-                  </button>
-                )}
-              </>
-            ) : installed ? (
-              <span className="text-[11px] text-[#89d185]">已安装</span>
-            ) : null}
+            <button
+              onClick={onToggleDisabled}
+              className="text-[11px] text-[#3794ff] hover:underline"
+            >
+              {detail.disabled ? "启用" : "禁用"}
+            </button>
+            {detail.origin === "global" && (
+              <button
+                onClick={onUninstall}
+                className="flex items-center gap-0.5 text-[11px] text-[#f48771] hover:underline"
+              >
+                <Trash2 size={11} />
+                <span>卸载</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
