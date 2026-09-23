@@ -22,7 +22,7 @@ use terminal::{
     write_terminal,
 };
 use vsix::{
-    install_vsix, install_vsix_bytes, list_extensions, pick_vsix_dialog, read_extension_file,
+    install_vsix, list_extensions, pick_vsix_dialog, read_extension_file,
     read_extension_file_bytes, uninstall_extension,
 };
 
@@ -46,6 +46,18 @@ pub struct FileNode {
 /// 资源管理器默认隐藏的重目录 / 构建产物（vscode 默认也排除这些）。
 /// 搜索（search.rs）与快速打开共用同一排除规则。
 pub(crate) const EXCLUDED_DIRS: [&str; 4] = [".git", "node_modules", "target", "dist"];
+
+/// 受管配置根：~/.aluka-ide/（设置、语言定义、扩展均落在此目录下）。
+/// 与 `vsix.rs::global_extensions_dir` 保持同一路径形状：后者在其下拼 `extensions`。
+/// 扩展相关命令（读文件/卸载）需要判断目标是否越出应用受管目录；
+/// canonicalize 要求路径已存在，故请仅在确认存在后再对本函数结果做规范化。
+pub(crate) fn managed_state_root(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .home_dir()
+        .map_err(|e| format!("无法定位用户主目录: {e}"))?
+        .join(".aluka-ide"))
+}
 
 /// 读取保护阈值：超过 20MB 拒绝打开，5~20MB 只读（REQUIREMENTS R5/NFR-01）
 const READ_MAX_BYTES: u64 = 20 * 1024 * 1024;
@@ -92,11 +104,16 @@ fn read_file(path: String) -> Result<TextFile, String> {
 
 /// 保存文本文件（仅允许覆盖已存在文件；"另存为"属后续里程碑）。
 #[tauri::command]
-fn write_file(path: String, content: String) -> Result<(), String> {
+fn write_file(
+    state: tauri::State<'_, FileScope>,
+    path: String,
+    content: String,
+) -> Result<(), String> {
     let p = Path::new(&path);
     if !p.is_file() {
         return Err(format!("文件不存在，无法保存: {path}"));
     }
+    assert_in_scope(state.0.lock().map_err(|e| e.to_string())?.as_ref(), p)?;
     std::fs::write(p, content).map_err(|e| format!("写入失败: {e}"))
 }
 
@@ -104,6 +121,68 @@ fn write_file(path: String, content: String) -> Result<(), String> {
 #[derive(Default)]
 pub struct WorkspaceState {
     watcher: Mutex<Option<notify::RecommendedWatcher>>,
+}
+
+/// 文件访问作用域：当前工作区根（已规范化）。
+/// None = 未声明作用域（如 `code <file>` 单文件视图）→ 不收敛路径，仅保留
+/// 大小/二进制保护，以维持「打开任意单文件」的既有可用性；
+/// 一旦打开文件夹，写/保存/新建/重命名/删除即收敛到该目录内（纵深防御）。
+#[derive(Default)]
+pub struct FileScope(Mutex<Option<PathBuf>>);
+
+/// 解析为绝对规范路径；目标不存在时逐级回溯最近的已存在祖先再拼接。
+/// 用途：让「尚未创建的文件」也能参与作用域校验，同时消解 `..` 与符号链接。
+fn resolve_scope_path(p: &Path) -> Result<PathBuf, String> {
+    if let Ok(c) = p.canonicalize() {
+        return Ok(c);
+    }
+    let mut cur = p.to_path_buf();
+    let mut tail: Vec<std::ffi::OsString> = Vec::new();
+    while let Some(name) = cur.file_name().map(|n| n.to_os_string()) {
+        tail.push(name);
+        if !cur.pop() {
+            break;
+        }
+        if let Ok(c) = cur.canonicalize() {
+            let mut out = c;
+            for seg in tail.iter().rev() {
+                out.push(seg);
+            }
+            return Ok(out);
+        }
+    }
+    Err(format!("路径无法解析: {}", p.display()))
+}
+
+/// 判定候选路径是否落在作用域内。作用域为空时放行（未打开文件夹的单文件场景）。
+fn assert_in_scope(scope: Option<&PathBuf>, p: &Path) -> Result<(), String> {
+    let Some(root) = scope else {
+        return Ok(());
+    };
+    let resolved = resolve_scope_path(p)?;
+    if resolved.starts_with(root) {
+        Ok(())
+    } else {
+        Err(format!("路径越出当前工作区，已拒绝访问: {}", p.display()))
+    }
+}
+
+/// 声明当前工作区作用域（打开/关闭文件夹时由前端调用；传 None 清空）。
+/// 规范化在 Rust 侧完成，前端无法通过伪造路径绕过 `..` 与符号链接。
+#[tauri::command]
+fn set_file_scope(state: tauri::State<'_, FileScope>, root: Option<String>) -> Result<(), String> {
+    let resolved = match root {
+        None => None,
+        Some(r) => {
+            let p = Path::new(&r);
+            if !p.is_dir() {
+                return Err(format!("路径不是目录: {r}"));
+            }
+            Some(p.canonicalize().map_err(|e| format!("路径无效: {e}"))?)
+        }
+    };
+    *state.0.lock().map_err(|e| e.to_string())? = resolved;
+    Ok(())
 }
 
 /// 工作区文件变更事件（`workspace:changed` 负载，kind 对齐 notify 顶层分类）
@@ -175,11 +254,12 @@ async fn open_file_dialog() -> Result<Option<String>, String> {
 
 /// 读取目录的单层子项：目录优先、名称不区分大小写排序，跳过排除目录。
 #[tauri::command]
-fn read_dir(path: String) -> Result<Vec<FileNode>, String> {
+fn read_dir(state: tauri::State<'_, FileScope>, path: String) -> Result<Vec<FileNode>, String> {
     let dir = Path::new(&path);
     if !dir.is_dir() {
         return Err(format!("路径不是目录: {path}"));
     }
+    assert_in_scope(state.0.lock().map_err(|e| e.to_string())?.as_ref(), dir)?;
     let entries = std::fs::read_dir(dir).map_err(|e| format!("读取目录失败: {e}"))?;
     let mut nodes = Vec::new();
     for entry in entries.flatten() {
@@ -205,8 +285,13 @@ fn read_dir(path: String) -> Result<Vec<FileNode>, String> {
 
 /// 新建文件（空文件）或文件夹；父目录不存在时自动补建。
 #[tauri::command]
-fn create_entry(path: String, is_dir: bool) -> Result<(), String> {
+fn create_entry(
+    state: tauri::State<'_, FileScope>,
+    path: String,
+    is_dir: bool,
+) -> Result<(), String> {
     let p = Path::new(&path);
+    assert_in_scope(state.0.lock().map_err(|e| e.to_string())?.as_ref(), p)?;
     if p.exists() {
         return Err(format!("已存在同名文件或文件夹: {path}"));
     }
@@ -223,12 +308,21 @@ fn create_entry(path: String, is_dir: bool) -> Result<(), String> {
 
 /// 重命名 / 移动；目标已存在时拒绝（不做覆盖）。
 #[tauri::command]
-fn rename_entry(old_path: String, new_path: String) -> Result<(), String> {
+fn rename_entry(
+    state: tauri::State<'_, FileScope>,
+    old_path: String,
+    new_path: String,
+) -> Result<(), String> {
     let from = Path::new(&old_path);
     if !from.exists() {
         return Err(format!("路径不存在: {old_path}"));
     }
     let to = Path::new(&new_path);
+    {
+        let guard = state.0.lock().map_err(|e| e.to_string())?;
+        assert_in_scope(guard.as_ref(), from)?;
+        assert_in_scope(guard.as_ref(), to)?;
+    }
     if to.exists() {
         return Err(format!("目标已存在: {new_path}"));
     }
@@ -237,11 +331,12 @@ fn rename_entry(old_path: String, new_path: String) -> Result<(), String> {
 
 /// 删除：移入系统回收站而非直接删除，保证可恢复（AGENTS.md 质量红线 4）。
 #[tauri::command]
-fn delete_entry(path: String) -> Result<(), String> {
+fn delete_entry(state: tauri::State<'_, FileScope>, path: String) -> Result<(), String> {
     let p = Path::new(&path);
     if !p.exists() {
         return Err(format!("路径不存在: {path}"));
     }
+    assert_in_scope(state.0.lock().map_err(|e| e.to_string())?.as_ref(), p)?;
     trash::delete(p).map_err(|e| format!("移入回收站失败: {e}"))
 }
 
@@ -251,12 +346,16 @@ fn delete_entry(path: String) -> Result<(), String> {
 fn watch_workspace(
     app: AppHandle,
     state: tauri::State<'_, WorkspaceState>,
+    scope: tauri::State<'_, FileScope>,
     root: String,
 ) -> Result<(), String> {
     let dir = Path::new(&root);
     if !dir.is_dir() {
         return Err(format!("路径不是目录: {root}"));
     }
+    // 打开工作区即确立文件作用域（canonicalize 消解 .. 与符号链接）
+    *scope.0.lock().map_err(|e| e.to_string())? =
+        Some(dir.canonicalize().map_err(|e| format!("路径无效: {e}"))?);
     // 丢弃旧监听（Drop 关闭事件通道，旧汇总线程随之退出）
     *state.watcher.lock().map_err(|e| e.to_string())? = None;
 
@@ -311,16 +410,21 @@ pub struct SaveItem {
 }
 
 #[tauri::command]
-fn save_all(items: Vec<SaveItem>) -> Result<(), String> {
+fn save_all(state: tauri::State<'_, FileScope>, items: Vec<SaveItem>) -> Result<(), String> {
     for it in &items {
-        write_file(it.path.clone(), it.content.clone())?;
+        let p = Path::new(&it.path);
+        if !p.is_file() {
+            return Err(format!("文件不存在，无法保存: {}", it.path));
+        }
+        assert_in_scope(state.0.lock().map_err(|e| e.to_string())?.as_ref(), p)?;
+        std::fs::write(p, &it.content).map_err(|e| format!("写入失败（{}）: {e}", it.path))?;
     }
     Ok(())
 }
 
 /// 用户设置结构体（FR-12）。字段 camelCase 对齐前端；未知字段忽略以向前兼容。
 #[derive(Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct Settings {
     pub theme: String,
     pub font_size: u32,
@@ -550,10 +654,12 @@ pub fn run() {
         .manage(PendingWorkspace(Mutex::new(pending_workspace)))
         .manage(PendingFile(Mutex::new(pending_file)))
         .manage(WorkspaceState::default())
+        .manage(FileScope::default())
         .manage(terminal::TerminalState::default())
         .invoke_handler(tauri::generate_handler![
             take_pending_workspace,
             take_pending_file,
+            set_file_scope,
             open_folder_dialog,
             open_file_dialog,
             read_dir,
@@ -595,7 +701,6 @@ pub fn run() {
             git_pull,
             git_init,
             install_vsix,
-            install_vsix_bytes,
             list_extensions,
             pick_vsix_dialog,
             read_extension_file,
@@ -604,4 +709,45 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("Aluka IDE 启动失败");
+}
+
+#[cfg(test)]
+mod scope_tests {
+    use super::*;
+
+    /// 已存在目录应被规范化为绝对路径
+    #[test]
+    fn resolve_existing_dir_is_absolute() {
+        let cwd = std::env::current_dir().unwrap();
+        let resolved = resolve_scope_path(&cwd).unwrap();
+        assert!(resolved.is_absolute());
+    }
+
+    /// 不存在的叶子文件也要能解析（用于保存新文件 / 新建入口的校验）
+    #[test]
+    fn resolve_nonexistent_leaf_reuses_existing_ancestor() {
+        let cwd = std::env::current_dir().unwrap();
+        let fake = cwd.join("__aluka_not_exists__").join("a.txt");
+        let resolved = resolve_scope_path(&fake).unwrap();
+        assert!(resolved.is_absolute());
+        assert!(resolved.ends_with("a.txt"));
+    }
+
+    /// 作用域为空时放行（未打开文件夹的单文件视图，保持既有可用性）
+    #[test]
+    fn empty_scope_allows_any_path() {
+        let p = std::env::current_dir().unwrap();
+        assert!(assert_in_scope(None, &p).is_ok());
+    }
+
+    /// 作用域内放行、作用域外拒绝（含 ".." 穿越尝试）
+    #[test]
+    fn scope_enforced_for_paths_outside_root() {
+        let cwd = std::env::current_dir().unwrap().canonicalize().unwrap();
+        let inside = cwd.join("Cargo.toml");
+        assert!(assert_in_scope(Some(&cwd), &inside).is_ok());
+
+        let outside = cwd.join("..").join("definitely-outside.txt");
+        assert!(assert_in_scope(Some(&cwd), &outside).is_err());
+    }
 }

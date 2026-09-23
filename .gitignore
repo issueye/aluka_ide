@@ -12,3 +12,6 @@ src-tauri/gen/schemas/
 .work/**/assets/tmp/
 .work/**/assets/
 examples/extensions/dist/
+
+# 子智能体输出（工具产物，不入库）
+.ada/

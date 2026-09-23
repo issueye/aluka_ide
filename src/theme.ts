@@ -51,11 +51,40 @@ function setVar(name: string, value: string): void {
   document.documentElement.style.setProperty(name, value);
 }
 
+/**
+ * 主题色值安全校验。
+ * 为什么必须校验：扩展主题 JSON 的 colors/tokenColors 取值会直接写入 CSS 变量与
+ * Monaco 主题，若为 `url(https://evil/x)` 之类即可在切换主题时产生外联（违反 NFR-03）。
+ * 从紧：仅接受 #hex / rgb()/rgba()/hsl()/hsla() / 常见颜色关键字 / 透明值。
+ */
+const SAFE_COLOR_RE =
+  /^(#[0-9a-fA-F]{3,8}|rgba?\([0-9.,%\s/]+\)|hsla?\([0-9.,%\s/]+\)|[a-zA-Z]+)$/;
+
+function isSafeColorValue(v: unknown): v is string {
+  if (typeof v !== "string") return false;
+  const s = v.trim();
+  if (s.length === 0 || s.length > 64) return false;
+  if (s.includes("(") && !/^(rgba?|hsla?)\(/i.test(s)) return false;
+  if (s.includes("\\") || s.includes(";") || s.includes("<") || s.includes(">")) return false;
+  return SAFE_COLOR_RE.test(s);
+}
+
+/** Monaco 主题 rules 字段：允许的 fontStyle 取值（其余忽略） */
+function safeFontStyle(v: unknown): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const parts = v
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((p) => p === "italic" || p === "bold" || p === "underline" || p === "strikethrough");
+  return parts.length > 0 ? parts.join(" ") : undefined;
+}
+
 /** 把主题 colors 写入 CSS 变量（未映射的 ID 忽略，供 M6 扩展主题前向兼容） */
 export function applyThemeColors(theme: AlukaTheme): void {
   for (const [colorId, cssVar] of Object.entries(COLOR_TO_CSS_VAR)) {
     const v = theme.colors[colorId];
-    if (v) setVar(cssVar, v);
+    // 校验后再写入：恶意/异常取值（url(...)、含分号等）直接丢弃，保持上一主题的值
+    if (isSafeColorValue(v)) setVar(cssVar, v);
   }
 }
 
@@ -69,16 +98,31 @@ export function monacoThemeName(id: string): string {
 
 /** tokenColors → Monaco rules；定义并切换编辑器主题 */
 export function applyMonacoTheme(theme: AlukaTheme): void {
-  const rules = theme.tokenColors.map((r) => {
-    const scope = Array.isArray(r.scope) ? r.scope.join(",") : (r.scope ?? "");
-    return {
-      token: scope,
-      foreground: r.settings.foreground?.replace("#", ""),
-      fontStyle: r.settings.fontStyle,
-    };
-  });
-  // Monaco 忽略未知颜色 ID：theme.colors 原样透传（editor.* 生效，workbench 色忽略）
-  const colors: Record<string, string> = { ...theme.colors };
+  const rules = theme.tokenColors
+    // 逐项防御：tokenColors 元素可能为 null / 缺 settings（恶意或损坏的主题 JSON），
+    // 原实现直接读 r.settings.foreground 会抛 TypeError 中断整个激活流程。
+    .filter((r): r is TokenRule => typeof r === "object" && r !== null)
+    .map((r) => {
+      const scopeRaw = Array.isArray(r.scope) ? r.scope.join(",") : (r.scope ?? "");
+      const settings =
+        typeof r.settings === "object" && r.settings !== null ? r.settings : {};
+      const fg = settings.foreground;
+      return {
+        token: String(scopeRaw),
+        // Monaco 要求不带 # 的 6/8 位十六进制；非合法色值一律留空（继承基色）
+        foreground:
+          typeof fg === "string" && /^#?[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/.test(fg)
+            ? fg.replace("#", "")
+            : undefined,
+        fontStyle: safeFontStyle(settings.fontStyle),
+      };
+    });
+  // Monaco 忽略未知颜色 ID：theme.colors 透传（editor.* 生效，workbench 色忽略），
+  // 但先过滤非法色值，避免把扩展提供的任意字符串塞进主题定义
+  const colors: Record<string, string> = {};
+  for (const [k, v] of Object.entries(theme.colors)) {
+    if (isSafeColorValue(v)) colors[k] = v;
+  }
   const name = monacoThemeName(theme.id);
   monaco.editor.defineTheme(name, {
     base: theme.base,
@@ -92,8 +136,9 @@ export function applyMonacoTheme(theme: AlukaTheme): void {
 export function applyTheme(theme: AlukaTheme): void {
   applyThemeColors(theme);
   applyMonacoTheme(theme);
-  // 亮色主题下 webview 默认底色跟随，避免滚动橡皮筋/子像素露白
-  document.body.style.background = theme.colors["editor.background"] ?? "#1e1e1e";
+  // 亮色主题下 webview 默认底色跟随，避免滚动橡皮筋/子像素露白（同样先校验）
+  const bg = theme.colors["editor.background"];
+  document.body.style.background = isSafeColorValue(bg) ? bg : "#1e1e1e";
 }
 
 /* ---------------- 内置主题 ---------------- */

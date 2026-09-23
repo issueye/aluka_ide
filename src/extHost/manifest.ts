@@ -143,13 +143,36 @@ export function parseThemeJson(
   }
   if (!colors["editor.background"]) return null; // 主题 JSON 至少要有编辑器背景
   const type = o.type === "light" ? "vs" : "vs-dark";
+  // tokenColors 逐项收窄：元素可能为 null 或缺少 settings（损坏/恶意主题 JSON），
+  // 原实现直接 as 断言会让下游 theme.ts 在读取 r.settings 时抛错、中断激活。
+  const tokenColors: AlukaTheme["tokenColors"] = [];
+  if (Array.isArray(o.tokenColors)) {
+    for (const raw of o.tokenColors) {
+      if (typeof raw !== "object" || raw === null) continue;
+      const item = raw as Record<string, unknown>;
+      const scope = item.scope;
+      const okScope =
+        typeof scope === "string" ||
+        (Array.isArray(scope) && scope.every((s) => typeof s === "string"));
+      if (!okScope) continue;
+      const st = item.settings;
+      const settings =
+        typeof st === "object" && st !== null ? (st as Record<string, unknown>) : {};
+      tokenColors.push({
+        scope: scope as string | string[],
+        settings: {
+          foreground: typeof settings.foreground === "string" ? settings.foreground : undefined,
+          background: typeof settings.background === "string" ? settings.background : undefined,
+          fontStyle: typeof settings.fontStyle === "string" ? settings.fontStyle : undefined,
+        },
+      });
+    }
+  }
   return {
     id: themeId,
     label,
     base: type,
     colors,
-    tokenColors: Array.isArray(o.tokenColors)
-      ? (o.tokenColors as AlukaTheme["tokenColors"])
-      : [],
+    tokenColors,
   };
 }

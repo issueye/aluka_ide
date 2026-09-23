@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { watchWorkspace } from "./tauri";
+import { setFileScope, watchWorkspace } from "./tauri";
 import { useTreeStore } from "./treeStore";
 import { clearEditorSession } from "./editorStore";
 import { resetTerminalDebugConfig } from "./terminalIo";
@@ -192,12 +192,16 @@ export const useAppStore = create<AppStore>((set, get) => ({
     // 重置目录树并启动文件监听（异步，不阻塞 UI）
     void useTreeStore.getState().resetTree(root);
     void watchWorkspace(root).catch((e) => console.error("启动文件监听失败:", e));
+    // 显式声明作用域（watch_workspace 内部亦会设置；此处保证即使监听失败也已收敛）
+    void setFileScope(root).catch((e) => console.error("设置文件作用域失败:", e));
   },
   closeWorkspace: () => {
     set({ workspaceRoot: null, workspaceName: "" });
     persistWorkspaceRoot(null);
     clearEditorSession();
     void useTreeStore.getState().resetTree(null);
+    // 清空作用域：否则旧工作区范围残留会误拒后续单文件视图的写入
+    void setFileScope(null).catch((e) => console.error("清空文件作用域失败:", e));
   },
   selectView: (view) => {
     const { activeView, sidebarVisible } = get();

@@ -39,8 +39,38 @@ export interface AlukaCommand {
 
 const registry = new Map<string, AlukaCommand>();
 
+/** 内置命令 id 基线：registerCoreCommands 建立后冻结。
+ * 扩展注册一律走 guardRegisteredCommands，禁止覆盖内置 id——
+ * 否则扩展声明 workbench.action.quit / edit.copy 等即可劫持核心命令。 */
+const builtinCommandIds = new Set<string>();
+/** 扩展命令归属：命令 id → 注册它的扩展 id（用于拒绝跨扩展抢占同一 id） */
+const extensionCommandOwner = new Map<string, string>();
+
+/**
+ * 扩展命令注册门（安全边界）：返回获准注册的命令。
+ * 拒绝：① 命中内置命令 id；② 该 id 已被其他扩展持有；③ id 非法。
+ * 同一扩展重复注册自身 id 属正常（沙箱 registerCommand 覆盖自身占位声明）。
+ */
+export function guardRegisteredCommands(
+  ownerExtId: string,
+  cmds: AlukaCommand[],
+): AlukaCommand[] {
+  const accepted: AlukaCommand[] = [];
+  for (const c of cmds) {
+    if (typeof c.id !== "string" || c.id.trim() === "") continue;
+    if (builtinCommandIds.has(c.id)) continue;
+    const owner = extensionCommandOwner.get(c.id);
+    if (owner !== undefined && owner !== ownerExtId) continue;
+    extensionCommandOwner.set(c.id, ownerExtId);
+    accepted.push(c);
+  }
+  return accepted;
+}
+
+/** 内置命令注册（仅 registerCoreCommands 调用）：登记基线并锁定所有权 */
 export function registerCommand(cmd: AlukaCommand): void {
   registry.set(cmd.id, cmd);
+  builtinCommandIds.add(cmd.id);
 }
 
 export function registerCommands(cmds: AlukaCommand[]): void {
@@ -49,7 +79,10 @@ export function registerCommands(cmds: AlukaCommand[]): void {
 
 /** 反注册命令（扩展卸载热清理用；快捷键 keymap 每次按键从 registry 派生，即删即生效） */
 export function unregisterCommands(ids: string[]): void {
-  for (const id of ids) registry.delete(id);
+  for (const id of ids) {
+    registry.delete(id);
+    extensionCommandOwner.delete(id);
+  }
 }
 
 export function listCommands(): AlukaCommand[] {
@@ -405,6 +438,7 @@ export function openTerminalAt(root: string): void {
 }
 
 export function registerCoreCommands(): void {
+  if (builtinCommandIds.size > 0) return; // 幂等：避免重复登记基线
   registerCommands([
     {
       id: "workbench.action.showCommands",

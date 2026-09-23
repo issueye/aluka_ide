@@ -1,21 +1,33 @@
 //! VSIX 本地安装与扩展扫描（M6 / FR-10，兼容分级 L1）。
 //! VSIX 即 zip 包（VS Code 布局：extension/package.json 为清单）。
-//! 安全：解包走组件级 zip-slip 防护（拒绝绝对路径/盘符/父目录跳转）；
-//! 扩展文件读取同样限制在其目录内。
+//! 安全：解包走组件级 zip-slip 防护（拒绝绝对路径/盘符/父目录跳转）+ publisher/name
+//! 白名单 + 目标目录归属断言 + 解包体积/条目上限；扩展文件读取限定在受管扩展目录内。
+//! 在线市场（Open VSX）已移除，VSIX 仅来自用户本地文件，应用不再发起任何网络请求。
 
 use serde::Serialize;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
+
+/// 目录名安全片段：仅允许小写字母/数字/连字符（VS Code 扩展 id 惯例）。
+/// 关键：publisher/name 会参与路径拼接与 remove_dir_all，任一含 "." 或路径分隔符
+/// 即可构造 \"..\\..\" 越出扩展目录、进而删除任意目录，故必须同规则校验。
+fn safe_dir_segment(seg: &str) -> bool {
+    !seg.is_empty()
+        && seg
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// 解包安全上限：条目数与解压总字节（VSIX 为几 MB 级，留足余量的同时挡住
+/// zip bomb / 磁盘填满。双上限互补：条目防"海量小文件"，字节数防"单个巨型条目"）
+const MAX_VSIX_ENTRIES: usize = 20_000;
+const MAX_VSIX_TOTAL_BYTES: u64 = 512 * 1024 * 1024;
 
 /// 全局扩展目录：~/.aluka-ide/extensions/
+/// 路径形状统一由 lib::managed_state_root 提供，避免两处各写一份 home 拼接。
 fn global_extensions_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .home_dir()
-        .map_err(|e| format!("无法定位用户主目录: {e}"))?
-        .join(".aluka-ide")
-        .join("extensions");
+    let dir = crate::managed_state_root(app)?.join("extensions");
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建扩展目录失败: {e}"))?;
     Ok(dir)
 }
@@ -104,14 +116,30 @@ fn unpack_and_install<R: std::io::Read + std::io::Seek>(
         .get("publisher")
         .and_then(|v| v.as_str())
         .unwrap_or("unknown");
-    if name.is_empty()
-        || !name
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-    {
+    if !safe_dir_segment(name) {
         return Err(format!("扩展名非法（仅允许小写字母/数字/连字符）: {name}"));
     }
-    let dest_root = global_extensions_dir(app)?.join(format!("{publisher}.{name}"));
+    if !safe_dir_segment(publisher) {
+        return Err(format!(
+            "扩展 publisher 非法（仅允许小写字母/数字/连字符）: {publisher}"
+        ));
+    }
+    // 归属断言：拼出的目标必须仍在全局扩展目录内（canonicalize 消解符号链接）。
+    // 与上面的白名单校验互为纵深——单靠字符串白名单不足以覆盖全部平台差异。
+    let extensions_root = global_extensions_dir(app)?;
+    let dest_root = extensions_root.join(format!("{publisher}.{name}"));
+    let root_canonical = extensions_root
+        .canonicalize()
+        .map_err(|e| format!("扩展目录无效: {e}"))?;
+    let expected_name = format!("{publisher}.{name}");
+    let leaf_ok = dest_root
+        .parent()
+        .and_then(|p| p.canonicalize().ok())
+        .map(|parent| parent == root_canonical)
+        .unwrap_or(false);
+    if !leaf_ok || dest_root.file_name().and_then(|n| n.to_str()) != Some(expected_name.as_str()) {
+        return Err(format!("扩展安装路径越出扩展目录，已拒绝: {expected_name}"));
+    }
 
     // 覆盖安装：先移除旧目录（程序管理的扩展目录，非用户文档）
     if dest_root.exists() {
@@ -127,6 +155,13 @@ fn unpack_and_install<R: std::io::Read + std::io::Seek>(
         .map(|p| format!("{p}/"))
         .unwrap_or_default();
 
+    if zip.len() > MAX_VSIX_ENTRIES {
+        return Err(format!(
+            "VSIX 条目数超限（{} > {MAX_VSIX_ENTRIES}），已拒绝解包",
+            zip.len()
+        ));
+    }
+    let mut total_written: u64 = 0;
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i).map_err(|e| format!("读取条目失败: {e}"))?;
         let raw = entry.name().to_string();
@@ -142,7 +177,19 @@ fn unpack_and_install<R: std::io::Read + std::io::Seek>(
             std::fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
         }
         let mut out = std::fs::File::create(&dest).map_err(|e| format!("写入失败: {e}"))?;
-        std::io::copy(&mut entry, &mut out).map_err(|e| format!("解包失败: {e}"))?;
+        // 用 take 限制单条目写入量，确保解压总字节不越界（即使 content-length 被伪造）
+        let remaining = MAX_VSIX_TOTAL_BYTES.saturating_sub(total_written);
+        let written = std::io::copy(&mut entry.by_ref().take(remaining + 1), &mut out)
+            .map_err(|e| format!("解包失败: {e}"))?;
+        total_written = total_written.saturating_add(written);
+        if total_written > MAX_VSIX_TOTAL_BYTES {
+            // 清理半成品，避免残留超大文件
+            drop(out);
+            let _ = std::fs::remove_dir_all(&dest_root);
+            return Err(format!(
+                "VSIX 解压体积超限（>{MAX_VSIX_TOTAL_BYTES} 字节），已中止解包"
+            ));
+        }
     }
 
     Ok(InstallResult {
@@ -161,30 +208,6 @@ pub async fn install_vsix(app: AppHandle, vsix_path: String) -> Result<InstallRe
         }
         let file = std::fs::File::open(path).map_err(|e| format!("打开 VSIX 失败: {e}"))?;
         unpack_and_install(&app, file)
-    })
-    .await
-    .map_err(|e| format!("安装任务失败: {e}"))?
-}
-
-/// 从二进制字节流安装 VSIX。
-/// 传输走原始 IPC 载荷（JS 侧直接传 Uint8Array），避免 JSON 数字数组序列化
-/// 把几 MB 的包膨胀成几十 MB 的 IPC 消息；同时兼容 JSON 数组旧格式。
-#[tauri::command]
-pub async fn install_vsix_bytes(
-    app: AppHandle,
-    request: tauri::ipc::Request<'_>,
-) -> Result<InstallResult, String> {
-    let bytes: Vec<u8> = match request.body() {
-        tauri::ipc::InvokeBody::Raw(raw) => raw.to_vec(),
-        tauri::ipc::InvokeBody::Json(value) => serde_json::from_value(value.clone())
-            .map_err(|e| format!("请求体不是有效字节数组: {e}"))?,
-    };
-    if bytes.is_empty() {
-        return Err("VSIX 内容为空".into());
-    }
-    tauri::async_runtime::spawn_blocking(move || {
-        let cursor = std::io::Cursor::new(bytes);
-        unpack_and_install(&app, cursor)
     })
     .await
     .map_err(|e| format!("安装任务失败: {e}"))?
@@ -253,15 +276,50 @@ fn scan_dir(dir: &Path, origin: &str) -> Vec<InstalledExtension> {
     out
 }
 
-/// 读取扩展目录内文件（主题 JSON / 片段 / main.js 等）。
-/// 路径逃逸防护与 zip-slip 同规则。
-#[tauri::command]
-pub fn read_extension_file(dir: String, rel: String) -> Result<String, String> {
-    let root = Path::new(&dir);
-    if !root.is_dir() {
-        return Err(format!("扩展目录不存在: {dir}"));
+/// 校验扩展目录归属：必须是全局扩展目录、或工作区 `<workspace>/.aluka/extensions/`
+/// 下的直接子目录。仅校验 rel 不足以防止 dir 被替换为任意绝对路径（任意文件读取）。
+fn assert_extension_dir(app: &AppHandle, dir: &str) -> Result<PathBuf, String> {
+    let canonical = Path::new(dir)
+        .canonicalize()
+        .map_err(|e| format!("扩展目录无效: {e}"))?;
+
+    let global_root = global_extensions_dir(app)?
+        .canonicalize()
+        .map_err(|e| format!("扩展目录无效: {e}"))?;
+    // 全局扩展：目录本身或更深一层（防御性放宽，正常为直接子目录）
+    if canonical.starts_with(&global_root) {
+        return Ok(canonical);
     }
-    let dest = safe_target(root, &rel)?;
+    // 工作区扩展：目录名必须恰为 .aluka/extensions 下的直接子目录
+    let mut ws_ok = false;
+    if let Some(parent) = canonical.parent() {
+        if parent.file_name().and_then(|n| n.to_str()) == Some("extensions")
+            && parent
+                .parent()
+                .and_then(|p| p.file_name())
+                .and_then(|n| n.to_str())
+                == Some(".aluka")
+        {
+            ws_ok = true;
+        }
+        // 规范化后的父目录为其祖先链上的任一 .aluka/extensions（防符号链接中间层）
+        if !ws_ok && parent.starts_with(&global_root) {
+            ws_ok = true;
+        }
+    }
+    if !ws_ok {
+        return Err(format!("扩展目录不在受管范围内，已拒绝读取: {dir}"));
+    }
+    Ok(canonical)
+}
+
+/// 读取扩展目录内文件（主题 JSON / 片段 / main.js 等）。
+/// 双重防护：dir 必须归属受管扩展目录（assert_extension_dir），
+/// rel 再走 zip-slip 同规则（safe_target）。
+#[tauri::command]
+pub fn read_extension_file(app: AppHandle, dir: String, rel: String) -> Result<String, String> {
+    let root = assert_extension_dir(&app, &dir)?;
+    let dest = safe_target(&root, &rel)?;
     if !dest.is_file() {
         return Err(format!("扩展文件不存在: {rel}"));
     }
@@ -269,14 +327,15 @@ pub fn read_extension_file(dir: String, rel: String) -> Result<String, String> {
 }
 
 /// 读取扩展目录内文件的原始字节（README 相对图片内联渲染用；二进制安全）。
-/// 路径逃逸防护与 read_extension_file 同规则。
+/// 路径防护与 read_extension_file 同规则。
 #[tauri::command]
-pub fn read_extension_file_bytes(dir: String, rel: String) -> Result<Vec<u8>, String> {
-    let root = Path::new(&dir);
-    if !root.is_dir() {
-        return Err(format!("扩展目录不存在: {dir}"));
-    }
-    let dest = safe_target(root, &rel)?;
+pub fn read_extension_file_bytes(
+    app: AppHandle,
+    dir: String,
+    rel: String,
+) -> Result<Vec<u8>, String> {
+    let root = assert_extension_dir(&app, &dir)?;
+    let dest = safe_target(&root, &rel)?;
     if !dest.is_file() {
         return Err(format!("扩展文件不存在: {rel}"));
     }
@@ -301,4 +360,43 @@ pub async fn uninstall_extension(app: AppHandle, dir: String) -> Result<(), Stri
     })
     .await
     .map_err(|e| format!("卸载任务失败: {e}"))?
+}
+
+#[cfg(test)]
+mod security_tests {
+    use super::*;
+
+    /// 目录名白名单：这是阻止 publisher 构造 "..\\.." 越出扩展目录（进而 remove_dir_all
+    /// 删任意目录）的第一道防线，必须严格拒绝点号与路径分隔符。
+    #[test]
+    fn safe_dir_segment_rejects_traversal_and_separators() {
+        assert!(safe_dir_segment("my-ext"));
+        assert!(safe_dir_segment("ext2"));
+        assert!(safe_dir_segment("9"));
+        assert!(safe_dir_segment("ext-"));
+
+        assert!(!safe_dir_segment(""));
+        assert!(!safe_dir_segment(".."));
+        assert!(!safe_dir_segment("a.b"));
+        assert!(!safe_dir_segment("a/b"));
+        assert!(!safe_dir_segment("a\\b"));
+        assert!(!safe_dir_segment("C:"));
+        // 连字符位置无语义风险（VS Code 扩展 id 本就允许），仅确认其被接受
+        assert!(!safe_dir_segment("UPPER"));
+        assert!(!safe_dir_segment("上手"));
+    }
+
+    /// zip-slip 防线：绝对路径、盘符前缀、父目录跳转一律拒绝。
+    #[test]
+    fn safe_target_blocks_zip_slip() {
+        let root = Path::new("/ext/root");
+        assert!(safe_target(root, "themes/dark.json").is_ok());
+        assert!(safe_target(root, "./main.js").is_ok());
+
+        assert!(safe_target(root, "../evil").is_err());
+        assert!(safe_target(root, "../../evil").is_err());
+        assert!(safe_target(root, "a/../../evil").is_err());
+        assert!(safe_target(root, "/etc/passwd").is_err());
+        assert!(safe_target(root, "C:/Windows/x").is_err());
+    }
 }
